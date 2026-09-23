@@ -397,13 +397,21 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
       refreshMoney()
     }
 
-    const onPromoApplied = (d: { orderNumber?: string; promoCode?: string; promoLabel?: string; discountLyd?: number; customerName?: string }) => {
+    const onPromoApplied = (d: { orderNumber?: string; promoCode?: string; promoLabel?: string; promoKind?: string; discountLyd?: number; cashbackLyd?: number; customerName?: string }) => {
       if (!d?.promoCode) return
-      pushEvent(
-        'promo',
-        `🎟️ استخدم الزبون ${d.customerName ?? ''} كوبون ${d.promoLabel ?? d.promoCode} على الطلب ${d.orderNumber ?? ''}`,
-        `وفّرنا له ${(d.discountLyd ?? 0).toFixed(2)} د.ل — على حساب المنصة`,
-      )
+      if (d.promoKind === 'cashback') {
+        pushEvent(
+          'promo',
+          `💸 كاش باك ${d.promoLabel ?? d.promoCode} على طلب ${d.orderNumber ?? ''} للزبون ${d.customerName ?? ''}`,
+          `سيُودع ${(d.cashbackLyd ?? 0).toFixed(2)} د.ل محفظته عند التسليم — من ميزانية تسويق المنصة`,
+        )
+      } else {
+        pushEvent(
+          'promo',
+          `🎟️ استخدم الزبون ${d.customerName ?? ''} كوبون ${d.promoLabel ?? d.promoCode} على الطلب ${d.orderNumber ?? ''}`,
+          `وفّرنا له ${(d.discountLyd ?? 0).toFixed(2)} د.ل — على حساب المنصة`,
+        )
+      }
     }
 
     const onTopupRedeemed = (d: { phone?: string; code?: string; amountLyd?: number; balance?: number }) => {
@@ -424,6 +432,15 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
       )
     }
 
+    const onPromoCashback = (d: { orderNumber?: string; customerPhone?: string; amountLyd?: number }) => {
+      if (!d?.orderNumber) return
+      pushEvent(
+        'promo',
+        `💸 كاش باك ${(d.amountLyd ?? 0).toFixed(2)} د.ل وُدع محفظة ${d.customerPhone ?? 'الزبون'} من طلب ${d.orderNumber}`,
+        'كوبون كاش باك — على حساب ميزانية تسويق المنصة',
+      )
+    }
+
     if (s.connected) onConnect()
     s.on('connect', onConnect)
     s.on('disconnect', onDisconnect)
@@ -437,6 +454,7 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
     s.on('store:promo_applied', onPromoApplied)
     s.on('wallet:topup_redeemed', onTopupRedeemed)
     s.on('store:giftcard_sold', onGiftCardSold)
+    s.on('wallet:promo_cashback', onPromoCashback)
 
     return () => {
       s.off('connect', onConnect)
@@ -451,6 +469,7 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
       s.off('store:promo_applied', onPromoApplied)
       s.off('wallet:topup_redeemed', onTopupRedeemed)
       s.off('store:giftcard_sold', onGiftCardSold)
+      s.off('wallet:promo_cashback', onPromoCashback)
       leaveRooms(['admin:fleet'])
     }
   }, [unlocked, pin, loadAll, pushEvent])
@@ -762,7 +781,7 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
 
                 <TabsContent value="dashboard">
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
-                    <DashboardTab summary={summary} events={feed} lastSync={lastSync} />
+                    <DashboardTab summary={summary} events={feed} lastSync={lastSync} positions={positions} />
                   </motion.div>
                 </TabsContent>
 

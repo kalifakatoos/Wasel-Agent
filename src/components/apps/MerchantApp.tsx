@@ -73,7 +73,9 @@ interface PromoAppliedPayload {
   customerName?: string
   promoCode: string
   promoLabel?: string
+  promoKind?: string
   discountLyd: number
+  cashbackLyd?: number
 }
 
 const PREP_OPTIONS = [
@@ -482,12 +484,21 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
       })
     }
     const onPromoApplied = (p: PromoAppliedPayload) => {
-      pushActivity('🎟️', `كوبون ${p.promoLabel ?? p.promoCode} على طلب ${p.orderNumber} — واصل يتحمّل الخصم ${(p.discountLyd ?? 0).toFixed(2)} د.ل`)
-      toast({
-        title: '🎟️ كوبون خصم على طلب جديد',
-        description: `${p.orderNumber} — الخصم على حساب واصل، حصتكم 90% كاملة`,
-        duration: 6000,
-      })
+      if (p.promoKind === 'cashback') {
+        pushActivity('💸', `كاش باك ${p.promoLabel ?? p.promoCode} على طلب ${p.orderNumber} — يُودع محفظة الزبون ${(p.cashbackLyd ?? 0).toFixed(2)} د.ل عند التسليم`)
+        toast({
+          title: '💸 كاش باك على طلب جديد',
+          description: `${p.orderNumber} — فاتورتك كاملة 100%، الإيداع من ميزانية واصل`,
+          duration: 6000,
+        })
+      } else {
+        pushActivity('🎟️', `كوبون ${p.promoLabel ?? p.promoCode} على طلب ${p.orderNumber} — واصل يتحمّل الخصم ${(p.discountLyd ?? 0).toFixed(2)} د.ل`)
+        toast({
+          title: '🎟️ كوبون خصم على طلب جديد',
+          description: `${p.orderNumber} — الخصم على حساب واصل، حصتكم 90% كاملة`,
+          duration: 6000,
+        })
+      }
     }
     const onGiftCardSold = (p: { orderNumber: string; codesCount: number; totalValueLyd: number }) => {
       pushActivity('🎁', `بعتوا ${p.codesCount} بطاقة شحن واصل بقيمة ${p.totalValueLyd.toFixed(2)} د.ل — طلب ${p.orderNumber}`)

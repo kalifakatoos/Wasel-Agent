@@ -39,7 +39,7 @@ export interface CreatePromoInput {
   label: string
   description: string
   emoji: string
-  kind: 'percent' | 'flat'
+  kind: 'percent' | 'flat' | 'cashback'
   percent?: number
   flatLyd?: number
   maxDiscountLyd?: number
@@ -48,6 +48,10 @@ export interface CreatePromoInput {
 }
 
 function promoValueLabel(p: PromoAdmin): string {
+  if (p.kind === 'cashback') {
+    const cap = p.maxDiscountLyd != null ? ` حتى سقف ${p.maxDiscountLyd.toFixed(2)} د.ل` : ''
+    return p.percent != null && p.percent > 0 ? `إيداع ${p.percent}%${cap}` : `إيداع ${(p.flatLyd ?? 0).toFixed(2)} د.ل`
+  }
   if (p.kind === 'flat') return `خصم ثابت ${(p.flatLyd ?? 0).toFixed(2)} د.ل`
   const cap = p.maxDiscountLyd != null ? ` حتى سقف ${p.maxDiscountLyd.toFixed(2)} د.ل` : ''
   return `خصم ${p.percent}%${cap}`
@@ -99,6 +103,11 @@ function PromoTicket({
             onCheckedChange={onToggle}
             aria-label={`${promo.isActive ? 'تعطيل' : 'تفعيل'} الكوبون ${promo.code}`}
           />
+          {promo.kind === 'cashback' && (
+            <Badge className="border-0 bg-[rgba(16,185,129,0.15)] px-2 py-0.5 text-[9px] font-bold text-[#10B981]">
+              💸 كاش باك
+            </Badge>
+          )}
           <Badge
             className={`border-0 px-2 py-0.5 text-[9px] font-bold ${
               promo.isActive
@@ -116,7 +125,7 @@ function PromoTicket({
 
       <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
         <div className="rounded-xl bg-[rgba(212,175,55,0.07)] px-2 py-2">
-          <p className="text-[10px] font-semibold text-[#938E7E]">قيمة الخصم</p>
+          <p className="text-[10px] font-semibold text-[#938E7E]">{promo.kind === 'cashback' ? 'قيمة الإيداع' : 'قيمة الخصم'}</p>
           <p className="mt-0.5 text-[11px] font-extrabold text-[#F8F5EE]">{promoValueLabel(promo)}</p>
         </div>
         <div className="rounded-xl bg-[rgba(212,175,55,0.07)] px-2 py-2">
@@ -259,7 +268,7 @@ export default function MarketingTab({
   const [pLabel, setPLabel] = useState('')
   const [pDesc, setPDesc] = useState('')
   const [pEmoji, setPEmoji] = useState('🎟️')
-  const [pKind, setPKind] = useState<'percent' | 'flat'>('percent')
+  const [pKind, setPKind] = useState<'percent' | 'flat' | 'cashback'>('percent')
   const [pPercent, setPPercent] = useState('10')
   const [pFlat, setPFlat] = useState('5')
   const [pCap, setPCap] = useState('')
@@ -330,7 +339,7 @@ export default function MarketingTab({
           </div>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
-              <Button className="min-h-12 rounded-xl bg-gradient-to-l from-[#D4AF37] to-[#F5D061] px-4 text-xs font-extrabold text-[#041710] shadow-md shadow-[rgba(212,175,55,0.2)]">
+              <Button className="gold-sweep min-h-12 rounded-xl bg-gradient-to-l from-[#D4AF37] to-[#F5D061] px-4 text-xs font-extrabold text-[#041710] shadow-md shadow-[rgba(212,175,55,0.2)]">
                 <Plus className="h-4 w-4" />
                 كوبون جديد
               </Button>
@@ -380,19 +389,22 @@ export default function MarketingTab({
                 <div className="grid grid-cols-3 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-[11px] font-bold text-[#938E7E]">النوع</Label>
-                    <Select value={pKind} onValueChange={(v) => setPKind(v === 'flat' ? 'flat' : 'percent')}>
+                    <Select value={pKind} onValueChange={(v) => setPKind(v as 'percent' | 'flat' | 'cashback')}>
                       <SelectTrigger className="h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-xs font-bold text-[#F8F5EE]">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="border-[rgba(212,175,55,0.35)] bg-[#062319] text-[#F8F5EE]">
                         <SelectItem value="percent">نسبة %</SelectItem>
                         <SelectItem value="flat">مبلغ ثابت</SelectItem>
+                        <SelectItem value="cashback">💸 كاش باك محفظة</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-                  {pKind === 'percent' ? (
+                  {pKind !== 'flat' ? (
                     <div className="space-y-1.5">
-                      <Label className="text-[11px] font-bold text-[#938E7E]">النسبة %</Label>
+                      <Label className="text-[11px] font-bold text-[#938E7E]">
+                        {pKind === 'cashback' ? 'نسبة الإيداع %' : 'النسبة %'}
+                      </Label>
                       <Input
                         dir="ltr"
                         type="number"
@@ -431,6 +443,11 @@ export default function MarketingTab({
                     />
                   </div>
                 </div>
+                {pKind === 'cashback' && (
+                  <p className="rounded-xl border border-[rgba(16,185,129,0.35)] bg-[rgba(16,185,129,0.07)] px-3 py-2.5 text-[10.5px] font-bold leading-relaxed text-[#10B981]">
+                    💸 كاش باك: لا يخصم من الفاتورة — عند اكتمال التوصيل تُودع القيمة مباشرة في محفظة الزبون من ميزانية تسويق المنصة (قيد مزدوج موثّق).
+                  </p>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-[11px] font-bold text-[#938E7E]">حد أدنى للطلب (د.ل)</Label>

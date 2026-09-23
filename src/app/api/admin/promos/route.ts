@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       label?: string
       description?: string
       emoji?: string
-      kind?: 'percent' | 'flat'
+      kind?: 'percent' | 'flat' | 'cashback'
       percent?: number
       flatLyd?: number
       maxDiscountLyd?: number
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     if (!label?.trim()) {
       return NextResponse.json({ error: 'اسم الكوبون مطلوب' }, { status: 400 })
     }
-    const finalKind = kind === 'flat' ? 'flat' : 'percent'
+    const finalKind = kind === 'flat' ? 'flat' : kind === 'cashback' ? 'cashback' : 'percent'
     let percent: number | null = null
     let flat: number | null = null
     if (finalKind === 'percent') {

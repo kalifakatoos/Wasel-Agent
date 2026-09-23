@@ -162,6 +162,8 @@ export default function WaselMain() {
             style={{ backgroundImage: 'url(/images/hero.png)' }}
             aria-hidden="true"
           />
+          {/* 🌌 شفق واصل الحي — حركة لونية بطيئة فاخرة */}
+          <div className="aurora" aria-hidden="true" />
           <div
             className="absolute inset-0"
             style={{
@@ -186,7 +188,7 @@ export default function WaselMain() {
               <Button
                 size="lg"
                 onClick={() => setRole('customer')}
-                className="h-12 rounded-xl bg-gradient-to-l from-[#D4AF37] to-[#F5D061] px-8 text-base font-bold text-[#041710] shadow-lg shadow-[rgba(212,175,55,0.25)] transition hover:scale-[1.02]"
+                className="gold-sweep h-12 rounded-xl bg-gradient-to-l from-[#D4AF37] to-[#F5D061] px-8 text-base font-bold text-[#041710] shadow-lg shadow-[rgba(212,175,55,0.25)] transition hover:scale-[1.02]"
               >
                 🚀 اطلب الآن
               </Button>

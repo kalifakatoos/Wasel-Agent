@@ -9,7 +9,7 @@ export interface PromoDef {
   label: string
   description: string
   emoji: string
-  kind: 'percent' | 'flat'
+  kind: 'percent' | 'flat' | 'cashback'
   percent?: number
   flatLyd?: number
   maxDiscountLyd?: number
@@ -55,7 +55,7 @@ export const PROMOS: PromoDef[] = [
 ]
 
 export type PromoResult =
-  | { ok: true; promo: PromoDef; discount: number }
+  | { ok: true; promo: PromoDef; discount: number; cashback?: number }
   | { ok: false; error: string }
 
 /// التحقق من الكوبون وحساب الخصم — القائمة الافتراضية الرسمية (النسخة الحية من الخادم تُمرَّر اختيارياً)
@@ -74,6 +74,20 @@ export function computePromoDiscount(
       error: `هذا الكوبون يتطلب طلباً بقيمة ${promo.minSubtotalLyd.toFixed(2)} د.ل على الأقل`,
     }
   }
+
+  // 💸 كوبونات الكاش باك: لا تخصم من الفاتورة — تُودع محفظة الزبون بعد اكتمال التوصيل
+  if (promo.kind === 'cashback') {
+    let cashback =
+      promo.kind === 'cashback' && promo.percent != null && promo.percent > 0
+        ? (subtotal * promo.percent) / 100
+        : (promo.flatLyd ?? 0)
+    if (promo.maxDiscountLyd != null) cashback = Math.min(cashback, promo.maxDiscountLyd)
+    cashback = Math.min(cashback, subtotal) // حكمة: لا كاش باك يتجاوز قيمة الطلب
+    cashback = Math.round(cashback * 100) / 100
+    if (cashback <= 0) return { ok: false, error: 'لا توجد قيمة كاش باك قابلة للتطبيق' }
+    return { ok: true, promo, discount: 0, cashback }
+  }
+
   let discount =
     promo.kind === 'percent'
       ? (subtotal * (promo.percent ?? 0)) / 100

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { ensureSeed } from '@/lib/wasel/ensure-seed'
 import { computeDeliveryFee, haversineKm } from '@/lib/wasel/pricing'
-import { computePromoDiscountDb, recordPromoUsage } from '@/lib/wasel/promos-server'
+import { computePromoDiscountDb, recordPromoUsage, recordPromoReject } from '@/lib/wasel/promos-server'
 import { ensureGiftCardProducts, notifyCustomer, orderNotifyText } from '@/lib/wasel/notifications-server'
 import { emitRealtime, generateOtp, generateOrderNumber, isValidLibyanPhone, money } from '@/lib/wasel/server-utils'
 import { mapOrder } from '@/lib/wasel/orders-server'
@@ -95,13 +95,20 @@ export async function POST(req: NextRequest) {
 
     // 🎟️ الخصم: تتحمله المنصة كاملاً — لا يمس حصة المتجر ولا أجرة الكابتن
     // المصدر: جدول الكوبونات المُدار من غرفة العمليات (تحقق خادمي نهائي)
+    // 💸 كوبونات الكاش باك: لا خصم من الفاتورة — تُودع محفظة الزبون عند التسليم
     let discount = 0
+    let cashbackLyd = 0
     let appliedPromo: string | null = null
     let appliedPromoLabel: string | null = null
     if (promo_code && promo_code.trim()) {
       const pr = await computePromoDiscountDb(promo_code, subtotal)
-      if (!pr.ok) return NextResponse.json({ error: pr.error }, { status: 400 })
+      if (!pr.ok) {
+        // 📉 تحليلات الفرص الضائعة: نوثّق المحاولات المرفوضة لأكواد معروفة (نفدت/معطل/تحت الحد)
+        await recordPromoReject(pr.row, pr.reason, subtotal, customer_phone.trim())
+        return NextResponse.json({ error: pr.error }, { status: 400 })
+      }
       discount = money(pr.discount)
+      cashbackLyd = money(pr.cashback ?? 0)
       appliedPromo = pr.promo.code
       appliedPromoLabel = pr.promo.label
     }
@@ -172,16 +179,22 @@ export async function POST(req: NextRequest) {
 
     const dto = mapOrder(order, store)
 
-    // عمود promoCode جديد: كتابة عبر SQL خام (توافق مع عميل Prisma قديم بالذاكرة)
+    // عمود promoCode + cashbackLyd جديدين: كتابة عبر SQL خام (توافق مع عميل Prisma قديم بالذاكرة)
     if (appliedPromo) {
       try {
-        await db.$executeRawUnsafe(`UPDATE "Order" SET "promoCode" = ? WHERE id = ?`, appliedPromo, order.id)
+        await db.$executeRawUnsafe(
+          `UPDATE "Order" SET "promoCode" = ?, "cashbackLyd" = ? WHERE id = ?`,
+          appliedPromo,
+          cashbackLyd,
+          order.id,
+        )
         ;(dto as { promoCode?: string }).promoCode = appliedPromo
       } catch {
         /* العمود موجود لكن تجاهل أي فشل غير متوقع */
       }
-      // 📊 إحصائيات الكوبون + بث حدث التسويق للمتجر وغرفة العمليات
-      await recordPromoUsage(appliedPromo, discount)
+      // 📊 إحصائيات الكوبون (الخصم أو الكاش باك — كلاهما على حساب المنصة)
+      await recordPromoUsage(appliedPromo, discount > 0 ? discount : cashbackLyd)
+      // 📡 بث حدث التسويق للمتجر وغرفة العمليات
       await emitRealtime([`store:${store.id}`, 'admin:fleet'], 'store:promo_applied', {
         orderId: order.id,
         orderNumber: order.orderNumber,
@@ -190,7 +203,9 @@ export async function POST(req: NextRequest) {
         customerName: dto.customerName,
         promoCode: appliedPromo,
         promoLabel: appliedPromoLabel,
+        promoKind: cashbackLyd > 0 ? 'cashback' : 'discount',
         discountLyd: discount,
+        cashbackLyd,
         subtotalLyd: subtotal,
         createdAt: dto.createdAt,
       })

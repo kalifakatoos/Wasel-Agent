@@ -96,11 +96,19 @@ export function CheckoutScreen({
     setPromoInput(r.promo.code)
     setPromoError(null)
     setShowPromos(false)
-    toast({
-      title: `🎟️ تم تطبيق ${r.promo.label}`,
-      description: `وفّرت ${r.discount.toFixed(2)} د.ل على هذا الطلب`,
-      className: 'border-[rgba(16,185,129,0.5)] bg-[#0A3324] text-[#10B981]',
-    })
+    if (r.promo.kind === 'cashback' && r.cashback) {
+      toast({
+        title: `💸 تم ربط كاش باك ${r.promo.label}`,
+        description: `لا خصم من فاتورتك — عند اكتمال التوصيل تُودع ${r.cashback.toFixed(2)} د.ل محفظتك مباشرة`,
+        className: 'border-[rgba(16,185,129,0.5)] bg-[#0A3324] text-[#10B981]',
+      })
+    } else {
+      toast({
+        title: `🎟️ تم تطبيق ${r.promo.label}`,
+        description: `وفّرت ${r.discount.toFixed(2)} د.ل على هذا الطلب`,
+        className: 'border-[rgba(16,185,129,0.5)] bg-[#0A3324] text-[#10B981]',
+      })
+    }
   }
 
   const removePromo = () => {
@@ -391,7 +399,29 @@ export function CheckoutScreen({
             </button>
           </div>
 
-          {appliedPromo && promoPreview ? (
+          {appliedPromo && promoPreview && promoPreview.cashback ? (
+            <div className="flex items-center justify-between rounded-xl border border-dashed border-[rgba(16,185,129,0.5)] bg-[rgba(16,185,129,0.08)] px-3.5 py-3">
+              <div className="flex items-center gap-2.5">
+                <span className="text-xl">💸</span>
+                <div>
+                  <p className="text-xs font-extrabold text-[#10B981]" dir="ltr">
+                    {appliedPromo}
+                  </p>
+                  <p className="text-[10px] text-[#938E7E]">كاش باك مُربوط — يُودع محفظتك بعد التسليم</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-money ltr-nums text-sm font-bold text-[#10B981]">+{promoPreview.cashback.toFixed(2)} د.ل</span>
+                <button
+                  onClick={removePromo}
+                  aria-label="إزالة الكوبون"
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-[#938E7E] transition hover:bg-[rgba(239,68,68,0.12)] hover:text-[#EF4444]"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          ) : appliedPromo && promoPreview ? (
             <div className="flex items-center justify-between rounded-xl border border-dashed border-[rgba(16,185,129,0.5)] bg-[rgba(16,185,129,0.08)] px-3.5 py-3">
               <div className="flex items-center gap-2.5">
                 <span className="text-xl">✅</span>
@@ -448,6 +478,13 @@ export function CheckoutScreen({
                 const eligible = subtotal >= p.minSubtotalLyd
                 const remaining = p.remainingUses ?? null
                 const scarce = remaining != null && remaining <= 3
+                const isCashback = p.kind === 'cashback'
+                // قيمة الكاش باك/الخصم المعاينة لهذا الكوبون على سلة الحالية
+                const previewValue = (() => {
+                  const r = computePromoDiscount(p.code, subtotal, promoList)
+                  if (!r.ok) return null
+                  return r.promo.kind === 'cashback' && r.cashback ? r.cashback : r.discount
+                })()
                 return (
                   <button
                     key={p.code}
@@ -455,16 +492,28 @@ export function CheckoutScreen({
                     disabled={!eligible}
                     className={`group relative rounded-xl border border-dashed p-3 text-right transition ${
                       eligible
-                        ? 'border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.06)] hover:border-[rgba(212,175,55,0.8)] hover:bg-[rgba(212,175,55,0.12)]'
+                        ? isCashback
+                          ? 'border-[rgba(16,185,129,0.5)] bg-[rgba(16,185,129,0.06)] hover:border-[rgba(16,185,129,0.85)] hover:bg-[rgba(16,185,129,0.12)]'
+                          : 'border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.06)] hover:border-[rgba(212,175,55,0.8)] hover:bg-[rgba(212,175,55,0.12)]'
                         : 'cursor-not-allowed border-[rgba(147,142,126,0.25)] bg-transparent opacity-50'
                     }`}
                   >
                     <span className="absolute left-2.5 top-2.5 text-[9px] font-black tracking-widest text-[rgba(212,175,55,0.55)]" dir="ltr">
                       {p.code}
                     </span>
+                    {isCashback && (
+                      <span className="absolute right-2.5 bottom-2.5 rounded-full bg-[rgba(16,185,129,0.18)] px-1.5 py-0.5 text-[8px] font-black text-[#10B981]">
+                        💸 كاش باك
+                      </span>
+                    )}
                     <span className="block text-xl">{p.emoji}</span>
                     <span className="mt-1 block text-[11px] font-extrabold text-[#F8F5EE]">{p.label}</span>
                     <span className="mt-0.5 block text-[9.5px] leading-relaxed text-[#938E7E]">{p.description}</span>
+                    {eligible && previewValue != null && (
+                      <span className={`font-money ltr-nums mt-1 block text-[10px] font-black ${isCashback ? 'text-[#10B981]' : 'text-[#F5D061]'}`}>
+                        {isCashback ? `+${previewValue.toFixed(2)} د.ل لمحفظتك بعد التسليم` : `-${previewValue.toFixed(2)} د.ل فوراً`}
+                      </span>
+                    )}
                     {/* شارة الندرة — العدّاد الحي من غرفة العمليات */}
                     {scarce && remaining != null && (
                       <span
@@ -509,7 +558,7 @@ export function CheckoutScreen({
         <Button
           onClick={submit}
           disabled={submitting || wallet?.blocked === true}
-          className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-l from-[#D4AF37] to-[#F5D061] text-base font-extrabold text-[#041710] shadow-lg shadow-[rgba(212,175,55,0.3)] transition hover:scale-[1.01] disabled:cursor-wait disabled:opacity-70"
+          className="gold-sweep flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-l from-[#D4AF37] to-[#F5D061] text-base font-extrabold text-[#041710] shadow-lg shadow-[rgba(212,175,55,0.3)] transition hover:scale-[1.01] disabled:cursor-wait disabled:opacity-70"
         >
           {submitting ? (
             <>

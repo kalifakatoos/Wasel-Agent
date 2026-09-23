@@ -39,6 +39,7 @@ const TXN_LABELS: Record<string, { label: string; emoji: string }> = {
   dispute: { label: 'نزاع', emoji: '⚖️' },
   platform_commission: { label: 'عمولة منصة', emoji: '🏛️' },
   topup: { label: 'شحن بكود هدية', emoji: '🎁' },
+  promo_cashback: { label: 'كاش باك كوبون', emoji: '💸' },
 }
 
 export function WalletScreen() {

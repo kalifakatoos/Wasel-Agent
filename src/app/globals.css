@@ -273,3 +273,95 @@ html {
   transform: translateY(-3px);
   box-shadow: 0 12px 28px rgba(4, 23, 16, 0.55);
 }
+
+/* ====== شفق قطبي فاخر (أورورا) — حركة ألوان بطيئة للواجهة الرئيسية ====== */
+@keyframes wasel-aurora {
+  0% {
+    transform: translate(-8%, -6%) rotate(0deg) scale(1);
+    opacity: 0.55;
+  }
+  33% {
+    transform: translate(6%, 4%) rotate(6deg) scale(1.12);
+    opacity: 0.8;
+  }
+  66% {
+    transform: translate(-4%, 8%) rotate(-5deg) scale(1.06);
+    opacity: 0.65;
+  }
+  100% {
+    transform: translate(-8%, -6%) rotate(0deg) scale(1);
+    opacity: 0.55;
+  }
+}
+.aurora {
+  position: absolute;
+  inset: -30%;
+  pointer-events: none;
+  background:
+    radial-gradient(38% 42% at 30% 30%, rgba(212, 175, 55, 0.16), transparent 70%),
+    radial-gradient(34% 40% at 72% 38%, rgba(16, 185, 129, 0.13), transparent 70%),
+    radial-gradient(40% 36% at 52% 78%, rgba(245, 208, 97, 0.1), transparent 72%);
+  filter: blur(28px);
+  animation: wasel-aurora 16s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+.aurora-slow {
+  animation-duration: 26s;
+  animation-direction: reverse;
+}
+
+/* ====== سحبة ذهبية على الأزرار الرئيسية عند التحويم ====== */
+@keyframes wasel-btn-sweep {
+  0% {
+    transform: translateX(-140%) skewX(-20deg);
+  }
+  100% {
+    transform: translateX(240%) skewX(-20deg);
+  }
+}
+.gold-sweep {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.gold-sweep::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 45%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.32) 50%,
+    transparent 100%
+  );
+  transform: translateX(-140%) skewX(-20deg);
+  pointer-events: none;
+}
+.gold-sweep:hover::after {
+  animation: wasel-btn-sweep 0.9s ease-out;
+}
+
+/* ====== نبضة حية للنقاط المؤشرية (Live dots) ====== */
+@keyframes wasel-live-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(16, 185, 129, 0);
+  }
+}
+.live-dot {
+  animation: wasel-live-glow 1.8s ease-out infinite;
+}
+
+/* ====== تدرج نصي للعناوين التحليلية (احمرار الندرة) ====== */
+.scarcity-text {
+  background: linear-gradient(120deg, #f59e0b 0%, #ef4444 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}

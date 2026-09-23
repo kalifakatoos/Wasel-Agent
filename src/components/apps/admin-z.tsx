@@ -338,6 +338,22 @@ export default function ZAccountingTab({
                   <ZRow label="مستحقات التجار" value={<Ly amount={audit.merchantDuesLyd} className="text-[#F8F5EE]" />} />
                 )}
                 <ZRow label="صافي أرباح المنصة" value={<Ly amount={audit.platformNetLyd} bold className="text-[#F5D061]" />} />
+                {audit.cashbackCreditedLyd != null && audit.cashbackCreditedLyd > 0 && (
+                  <ZRow
+                    label="💸 كاش باك وُدع للمحافظ"
+                    value={<Ly amount={audit.cashbackCreditedLyd} className="text-[#10B981]" />}
+                  />
+                )}
+                {audit.promoRejectsCount != null && audit.promoRejectsCount > 0 && (
+                  <ZRow
+                    label="📉 فرص ضائعة (كوبونات مرفوضة)"
+                    value={
+                      <span className="ltr-nums font-money text-[#F59E0B]">
+                        {audit.promoRejectsCount} × ≈ {(audit.promoRejectsLossLyd ?? 0).toFixed(2)} د.ل
+                      </span>
+                    }
+                  />
+                )}
               </ul>
               <p className="mt-4 rounded-lg border border-[rgba(16,185,129,0.35)] bg-[rgba(16,185,129,0.08)] p-2 text-center text-[12px] font-bold text-[#10B981]">
                 ✓ اليومية مقفلة ومحاسَبة — كل قرش مُساءل
@@ -388,6 +404,37 @@ function buildZPrintHtml(a: AuditRecord): string {
     timeStyle: 'short',
   })
 
+  // صفوف تحليلية إضافية (كاش باك + فرص ضائعة) — تظهر فقط عند توفر بيانات
+  const analyticsRows: string[] = []
+  if (a.cashbackCreditedLyd != null && a.cashbackCreditedLyd > 0) {
+    analyticsRows.push(`<tr><td>كاش باك وُدع للمحافظ (كوبونات)</td><td class="v">${fmt(a.cashbackCreditedLyd)} د.ل</td></tr>`)
+  }
+  if (a.promoRejectsCount != null && a.promoRejectsCount > 0) {
+    analyticsRows.push(
+      `<tr><td>فرص ضائعة — كوبونات مرفوضة</td><td class="v">${a.promoRejectsCount} محاولة ≈ ${fmt(a.promoRejectsLossLyd ?? 0)} د.ل</td></tr>`,
+    )
+  }
+
+  // 🔏 الختم الإلكتروني SVG — دائري مائل بختم واصل المعتمد
+  const sealSvg = `<svg class="seal-svg" viewBox="0 0 160 160" width="128" height="128" aria-hidden="true">
+    <defs>
+      <path id="sealArcTop" d="M 80,80 m -56,0 a 56,56 0 1,1 112,0" />
+      <path id="sealArcBottom" d="M 80,80 m -56,0 a 56,56 0 1,0 112,0" />
+    </defs>
+    <circle cx="80" cy="80" r="74" fill="none" stroke="#0a5c3c" stroke-width="3" opacity="0.75" />
+    <circle cx="80" cy="80" r="64" fill="none" stroke="#0a5c3c" stroke-width="1.2" opacity="0.55" />
+    <circle cx="80" cy="80" r="42" fill="none" stroke="#0a5c3c" stroke-width="1.2" opacity="0.55" />
+    <text font-size="13.5" font-weight="800" fill="#0a5c3c" opacity="0.85" letter-spacing="2">
+      <textPath href="#sealArcTop" startOffset="50%" text-anchor="middle">واصل نالوت • غرفة العمليات</textPath>
+    </text>
+    <text font-size="11.5" font-weight="700" fill="#0a5c3c" opacity="0.85" letter-spacing="1">
+      <textPath href="#sealArcBottom" startOffset="50%" text-anchor="middle">NALUT • LIBYA • LYD</textPath>
+    </text>
+    <text x="80" y="74" text-anchor="middle" font-size="15" font-weight="800" fill="#0a5c3c" opacity="0.9">معتمد</text>
+    <text x="80" y="92" text-anchor="middle" font-size="10.5" font-weight="700" fill="#b8860b" opacity="0.95">${a.auditCode}</text>
+    <text x="80" y="106" text-anchor="middle" font-size="9" font-weight="700" fill="#0a5c3c" opacity="0.7">كل قرش مُساءل</text>
+  </svg>`
+
   return `<!doctype html>
 <html dir="rtl" lang="ar">
 <head>
@@ -428,6 +475,12 @@ function buildZPrintHtml(a: AuditRecord): string {
     color: #0a5c3c;
     background: #f2faf6;
   }
+  .seal-svg {
+    display: block;
+    margin: 18px auto 0;
+    transform: rotate(-8deg);
+    opacity: 0.88;
+  }
   .notes { margin-top: 14px; font-size: 12px; color: #444; text-align: center; }
   .sign { margin-top: 42px; display: flex; justify-content: space-between; }
   .sign div { width: 44%; border-top: 1.5px solid #333; padding-top: 8px; text-align: center; font-size: 12px; color: #333; }
@@ -449,9 +502,11 @@ function buildZPrintHtml(a: AuditRecord): string {
             `<tr><td>${k}</td><td class="v">${v}</td></tr>`,
         )
         .join('\n      ')}
+      ${analyticsRows.join('\n      ')}
       <tr class="total"><td>حالة اليومية</td><td class="v">${a.isClosed ? 'مقفلة ومعتمدة ✓' : 'مفتوحة'}</td></tr>
     </table>
     <div class="seal">✓ اليومية مقفلة ومحاسَبة — كل قرش مُساءل بموجب ميثاق واصل الشرعي</div>
+    ${sealSvg}
     ${a.notes ? `<div class="notes">ملاحظات: ${a.notes}</div>` : ''}
     <div class="sign">
       <div>توقيع أمين الصندوق</div>

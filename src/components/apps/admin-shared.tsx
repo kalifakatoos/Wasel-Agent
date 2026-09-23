@@ -4,6 +4,7 @@
 // 🧩 مكونات وأنواع مشتركة لغرفة عمليات واصل نالوت (Task 7-d)
 // زمرد + ذهبي فقط — دينار ليبي حصرياً عبر <Ly/>
 // ============================================================
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { DriverDTO, VoucherDTO } from '@/lib/wasel/types'
 import type { PromoDef } from '@/lib/wasel/promos'
@@ -93,6 +94,11 @@ export interface AuditRecord {
   isClosed: boolean
   closedAt?: string | null
   notes?: string
+  /// 📉 تحليلات الفرص الضائعة وقت التقفيل (اختياري — محاضر قديمة بلا هذه الحقول)
+  promoRejectsCount?: number
+  promoRejectsLossLyd?: number
+  /// 💸 إجمالي كاش باك وُدع للمحافظ يوم المحضر
+  cashbackCreditedLyd?: number
 }
 
 // ---------- تسميات محلية ----------
@@ -124,6 +130,32 @@ export function fmtClock(iso: string | number | Date): string {
   return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
+// ---------- عدّاد متحرك (count-up) للأرقام المالية ----------
+
+/// يحرّك الرقم بسلاسة من قيمته السابقة إلى الجديدة (easing cubic-out)
+export function useAnimatedNumber(target: number, duration = 700): number {
+  const [display, setDisplay] = useState(target)
+  const prevRef = useRef(target)
+  useEffect(() => {
+    const from = prevRef.current
+    prevRef.current = target
+    const settled = Math.abs(target - from) < 0.005
+    let raf = 0
+    const start = performance.now()
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / duration)
+      const eased = 1 - Math.pow(1 - t, 3)
+      // قيمة مستقرة نطبعها مباشرة، وإلا نتحرك بتسهيل cubic-out
+      const value = settled ? target : from + (target - from) * eased
+      setDisplay(t < 1 && !settled ? value : target)
+      if (t < 1 && !settled) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [target, duration])
+  return display
+}
+
 // ---------- بطاقة مؤشر KPI ----------
 
 const TONES = {
@@ -151,6 +183,8 @@ export function KpiCard({
   suffix?: string
 }) {
   const t = TONES[tone]
+  // 🎬 العدّاد المتحرك — كل تغيير في القيمة يُحرّك الرقم بسلاسة
+  const animated = useAnimatedNumber(amount ?? 0)
   return (
     <div
       className="rounded-2xl border border-[rgba(212,175,55,0.16)] bg-[#062319] p-4 transition-colors hover:border-[rgba(212,175,55,0.35)]"
@@ -171,7 +205,7 @@ export function KpiCard({
       <div className="mt-3">
         {amount !== undefined ? (
           <span className="block" style={{ color: t.value }}>
-            <Ly amount={amount} bold className="text-[22px] leading-none" suffix={suffix ?? ' د.ل'} />
+            <Ly amount={animated} bold className="text-[22px] leading-none" suffix={suffix ?? ' د.ل'} />
           </span>
         ) : (
           <p className="font-money text-[22px] font-bold leading-none" style={{ color: t.value }}>

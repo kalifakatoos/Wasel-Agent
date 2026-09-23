@@ -155,6 +155,15 @@ export interface AccountingSummary {
   promoDiscountLyd: number
   promoOrders: number
   promoBreakdown: { code: string; uses: number; discountLyd: number }[]
+  /// 💸 كاش باك الكوبونات المودع للمحافظ اليوم
+  promoCashbackLyd: number
+  promoCashbackOrders: number
+  /// 📉 الفرص الضائعة: محاولات كوبونات مرفوضة اليوم (نفدت/معطل/تحت الحد)
+  promoRejects: {
+    count: number
+    lostLyd: number
+    breakdown: { code: string; count: number; lostLyd: number; topReason: string }[]
+  }
   stores: { id: string; name: string; emoji: string; dues: number; payoutPaid: number }[]
   drivers: DriverDTO[]
   lastAudit: { auditCode: string; auditDate: string; gmvLyd: number; cashCollectedLyd: number; isClosed: boolean; closedAt: string | null } | null

@@ -1,0 +1,827 @@
+     1→'use client'
+     2→
+     3→// ============================================================
+     4→// 🛡️ غرفة العمليات والمالية — واصل نالوت (Task 7-d)
+     5→// درع PIN → لوحة مؤشرات حية + أسطول + نزاعات + كباتن + محاسبة Z + متاجر
+     6→// ============================================================
+     7→import { useCallback, useEffect, useRef, useState } from 'react'
+     8→import { AnimatePresence, motion } from 'framer-motion'
+     9→import {
+    10→  Gauge,
+    11→  LogOut,
+    12→  Lock,
+    13→  Map as MapIcon,
+    14→  ScrollText,
+    15→  ShoppingCart,
+    16→  Store as StoreIcon,
+    17→  TicketPercent,
+    18→  Users,
+    19→} from 'lucide-react'
+    20→import { Button } from '@/components/ui/button'
+    21→import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp'
+    22→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    23→import { useToast } from '@/hooks/use-toast'
+    24→import { api, apiGet, apiPost, ApiError } from '@/lib/wasel/api'
+    25→import { getSocket, joinRooms, leaveRooms } from '@/lib/wasel/socket'
+    26→import { STATUS_LABELS } from '@/lib/wasel/constants'
+    27→import type { AccountingSummary, DriverDTO, OrderDTO } from '@/lib/wasel/types'
+    28→import DashboardTab from './admin-dashboard'
+    29→import FleetTab from './admin-fleet'
+    30→import OrdersTab from './admin-orders'
+    31→import CaptainsTab from './admin-captains'
+    32→import ZAccountingTab from './admin-z'
+    33→import StoresTab from './admin-stores'
+    34→import MarketingTab, { type CreatePromoInput } from './admin-marketing'
+    35→import type {
+    36→  AuditRecord,
+    37→  FeedEvent,
+    38→  FleetPos,
+    39→  PromoAdmin,
+    40→  PayoutStoreResult,
+    41→  ResolveNoShowResult,
+    42→  SettleResult,
+    43→  TopupCodeAdmin,
+    44→  VouchersPayload,
+    45→} from './admin-shared'
+    46→
+    47→const POLL_MS = 8000
+    48→
+    49→// ============================================================
+    50→// درع الـ PIN — منطقة مالية حساسة
+    51→// ============================================================
+    52→function PinLock({
+    53→  pin,
+    54→  onPinChange,
+    55→  checking,
+    56→  errorNonce,
+    57→  onAttempt,
+    58→  onExit,
+    59→}: {
+    60→  pin: string
+    61→  onPinChange: (v: string) => void
+    62→  checking: boolean
+    63→  errorNonce: number
+    64→  onAttempt: (code: string) => void
+    65→  onExit: () => void
+    66→}) {
+    67→  return (
+    68→    <div
+    69→      className="fixed inset-0 z-50 flex min-h-screen flex-col items-center justify-center overflow-y-auto px-4 wasel-scroll"
+    70→      style={{
+    71→        background:
+    72→          'radial-gradient(900px 500px at 50% -10%, rgba(212,175,55,0.12), transparent 60%), radial-gradient(700px 400px at 50% 110%, rgba(16,185,129,0.08), transparent 55%), #041710',
+    73→      }}
+    74→    >
+    75→      <motion.div
+    76→        key={errorNonce}
+    77→        initial={false}
+    78→        animate={errorNonce > 0 ? { x: [0, -16, 16, -12, 12, -5, 5, 0] } : { x: 0 }}
+    79→        transition={{ duration: 0.55 }}
+    80→        className="w-full max-w-sm rounded-3xl border border-[rgba(212,175,55,0.28)] bg-[#062319]/90 p-8 gold-glow"
+    81→      >
+    82→        <div className="flex flex-col items-center text-center">
+    83→          <motion.div
+    84→            initial={{ scale: 0.7, opacity: 0 }}
+    85→            animate={{ scale: 1, opacity: 1 }}
+    86→            transition={{ type: 'spring', stiffness: 200, damping: 14 }}
+    87→            className="flex h-24 w-24 items-center justify-center rounded-full border border-[rgba(212,175,55,0.4)] bg-[#041710] text-5xl"
+    88→          >
+    89→            🛡️
+    90→          </motion.div>
+    91→          <h1 className="gold-text mt-5 text-xl font-extrabold">غرفة عمليات واصل نالوت</h1>
+    92→          <p className="mt-1 text-[13px] font-semibold text-[#F5D061]">منطقة مالية حساسة</p>
+    93→          <p className="mt-2 text-[12px] leading-relaxed text-[#938E7E]">
+    94→            الدخول حصري للمخوّلين — أدخل رمز PIN الإداري المكوّن من 4 أرقام لفتح جلسة الإشراف والمحاسبة.
+    95→          </p>
+    96→
+    97→          <div className="mt-6" dir="ltr">
+    98→            <InputOTP
+    99→              maxLength={4}
+   100→              value={pin}
+   101→              onChange={onPinChange}
+   102→              onComplete={(v) => onAttempt(v)}
+   103→              disabled={checking}
+   104→            >
+   105→              <InputOTPGroup className="gap-3">
+   106→                {[0, 1, 2, 3].map((i) => (
+   107→                  <InputOTPSlot
+   108→                    key={i}
+   109→                    index={i}
+   110→                    className="font-money h-16 w-13 rounded-xl border border-[rgba(212,175,55,0.35)] bg-[#041710] text-3xl font-bold text-[#F5D061] shadow-none first:rounded-xl last:rounded-xl data-[active=true]:border-[#F5D061]"
+   111→                  />
+   112→                ))}
+   113→              </InputOTPGroup>
+   114→            </InputOTP>
+   115→          </div>
+   116→
+   117→          {errorNonce > 0 && (
+   118→            <p className="mt-4 text-[13px] font-bold text-[#EF4444]">⛔ رمز غير صحيح — أُمسح الرمز، حاول مجدداً</p>
+   119→          )}
+   120→          {checking && <p className="mt-4 text-[13px] font-semibold text-[#10B981]">جارٍ التحقق من الرمز…</p>}
+   121→
+   122→          <Button
+   123→            type="button"
+   124→            onClick={() => onAttempt(pin)}
+   125→            disabled={pin.length !== 4 || checking}
+   126→            className="mt-6 min-h-12 w-full bg-gradient-to-l from-[#D4AF37] to-[#F5D061] font-bold text-[#041710] hover:from-[#C59B27] hover:to-[#D4AF37]"
+   127→          >
+   128→            🔓 فتح غرفة العمليات
+   129→          </Button>
+   130→        </div>
+   131→      </motion.div>
+   132→
+   133→      <Button
+   134→        type="button"
+   135→        variant="ghost"
+   136→        onClick={onExit}
+   137→        className="mt-8 min-h-12 border border-[rgba(212,175,55,0.2)] text-[#938E7E] hover:bg-[#0A3324] hover:text-[#F5D061]"
+   138→      >
+   139→        <LogOut className="h-4 w-4" />
+   140→        الخروج إلى بوابة الأدوار
+   141→      </Button>
+   142→
+   143→      <p className="mt-4 pb-4 text-center text-[11px] text-[#938E7E]/70">
+   144→        🛡️ كل عملية داخل الغرفة تُسجَّل وتُساءل في دفتر السندات
+   145→      </p>
+   146→    </div>
+   147→  )
+   148→}
+   149→
+   150→// ============================================================
+   151→// التطبيق الرئيسي
+   152→// ============================================================
+   153→export default function AdminApp({ onExit }: { onExit: () => void }) {
+   154→  const { toast } = useToast()
+   155→
+   156→  // درع الـ PIN والجلسة
+   157→  const [pin, setPin] = useState('')
+   158→  const [unlocked, setUnlocked] = useState(false)
+   159→  const [checking, setChecking] = useState(false)
+   160→  const [errorNonce, setErrorNonce] = useState(0)
+   161→
+   162→  // بيانات الغرفة
+   163→  const [summary, setSummary] = useState<AccountingSummary | null>(null)
+   164→  const [vouchersData, setVouchersData] = useState<VouchersPayload | null>(null)
+   165→  const [orders, setOrders] = useState<OrderDTO[]>([])
+   166→  const [promos, setPromos] = useState<PromoAdmin[] | null>(null)
+   167→  const [giftCodes, setGiftCodes] = useState<TopupCodeAdmin[] | null>(null)
+   168→  const [feed, setFeed] = useState<FeedEvent[]>([])
+   169→  const [positions, setPositions] = useState<Record<string, FleetPos>>({})
+   170→  const [live, setLive] = useState(false)
+   171→  const [lastSync, setLastSync] = useState<number | null>(null)
+   172→  const [busy, setBusy] = useState<string | null>(null)
+   173→  const [tab, setTab] = useState('dashboard')
+   174→
+   175→  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+   176→
+   177→  // ---------- سجل الأحداث الحي ----------
+   178→  const pushEvent = useCallback((kind: FeedEvent['kind'], text: string, sub?: string) => {
+   179→    setFeed((prev) =>
+   180→      [
+   181→        {
+   182→          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+   183→          at: Date.now(),
+   184→          kind,
+   185→          text,
+   186→          sub,
+   187→        },
+   188→        ...prev,
+   189→      ].slice(0, 12),
+   190→    )
+   191→  }, [])
+   192→
+   193→  // ---------- قفل الجلسة ----------
+   194→  const lockSession = useCallback(
+   195→    (message?: string) => {
+   196→      setUnlocked(false)
+   197→      setPin('')
+   198→      setSummary(null)
+   199→      setVouchersData(null)
+   200→      setOrders([])
+   201→      setPromos(null)
+   202→      setGiftCodes(null)
+   203→      setPositions({})
+   204→      setFeed([])
+   205→      setLive(false)
+   206→      setLastSync(null)
+   207→      setBusy(null)
+   208→      if (message) {
+   209→        toast({ title: '🔒 أُقفلت الجلسة الإدارية', description: message, variant: 'destructive' })
+   210→      }
+   211→    },
+   212→    [toast],
+   213→  )
+   214→
+   215→  // ---------- معالج أخطاء موحد (401 = قفل فوري) ----------
+   216→  const handleAdminError = useCallback(
+   217→    (e: unknown) => {
+   218→      if (e instanceof ApiError && e.status === 401) {
+   219→        lockSession('رمز الإدارة غير صحيح أو منتهٍ — يلزم إعادة فتح الغرفة')
+   220→        return
+   221→      }
+   222→      toast({
+   223→        title: 'تعذر تنفيذ العملية',
+   224→        description: e instanceof Error ? e.message : String(e),
+   225→        variant: 'destructive',
+   226→      })
+   227→    },
+   228→    [lockSession, toast],
+   229→  )
+   230→
+   231→  // ---------- تحميل بيانات الغرفة (ملخص + سندات + طلبات) ----------
+   232→  const loadAll = useCallback(
+   233→    async (currentPin: string) => {
+   234→      if (!currentPin) return
+   235→      const headers = { 'x-admin-pin': currentPin }
+   236→      const [sumRes, vouRes, ordRes, promoRes, giftRes] = await Promise.allSettled([
+   237→        api<AccountingSummary>('/api/accounting/summary', { headers }),
+   238→        api<VouchersPayload>('/api/vouchers', { headers }),
+   239→        apiGet<{ orders: OrderDTO[] }>('/api/orders?status=all&limit=50'),
+   240→        api<{ promos: PromoAdmin[] }>('/api/admin/promos', { headers }),
+   241→        api<{ codes: TopupCodeAdmin[] }>('/api/admin/topup-codes', { headers }),
+   242→      ])
+   243→
+   244→      for (const r of [sumRes, vouRes]) {
+   245→        if (r.status === 'rejected' && r.reason instanceof ApiError && r.reason.status === 401) {
+   246→          lockSession('انتهت صلاحية جلسة الإدارة — رمز غير صحيح')
+   247→          return
+   248→        }
+   249→      }
+   250→
+   251→      if (sumRes.status === 'fulfilled') setSummary(sumRes.value)
+   252→      if (vouRes.status === 'fulfilled') setVouchersData(vouRes.value)
+   253→      if (ordRes.status === 'fulfilled') setOrders(ordRes.value.orders ?? [])
+   254→      if (promoRes.status === 'fulfilled') setPromos(promoRes.value.promos ?? [])
+   255→      if (giftRes.status === 'fulfilled') setGiftCodes(giftRes.value.codes ?? [])
+   256→      setLastSync(Date.now())
+   257→    },
+   258→    [lockSession],
+   259→  )
+   260→
+   261→  // ---------- فتح الجلسة بالـ PIN ----------
+   262→  const attemptUnlock = useCallback(
+   263→    async (code: string) => {
+   264→      if (code.length !== 4 || checking) return
+   265→      setChecking(true)
+   266→      try {
+   267→        const s = await api<AccountingSummary>('/api/accounting/summary', {
+   268→          headers: { 'x-admin-pin': code },
+   269→        })
+   270→        setPin(code)
+   271→        setSummary(s)
+   272→        setErrorNonce(0)
+   273→        setUnlocked(true)
+   274→        setFeed([
+   275→          {
+   276→            id: `unlock-${Date.now()}`,
+   277→            at: Date.now(),
+   278→            kind: 'status',
+   279→            text: '🔓 فُتحت جلسة غرفة العمليات — البث المالي واللوجستي يعمل الآن',
+   280→          },
+   281→        ])
+   282→        toast({ title: 'أهلاً بك في غرفة العمليات 🛡️', description: 'كل قرش مُساءل — البث الحي متصل' })
+   283→      } catch (e) {
+   284→        setPin('')
+   285→        if (e instanceof ApiError && e.status === 401) {
+   286→          setErrorNonce((n) => n + 1)
+   287→          toast({ title: 'رمز غير صحيح', description: 'رمز PIN الإداري مرفوض — حاول مجدداً', variant: 'destructive' })
+   288→        } else {
+   289→          toast({
+   290→            title: 'تعذر الاتصال بالخادم',
+   291→            description: e instanceof Error ? e.message : 'تحقق من الشبكة وحاول مجدداً',
+   292→            variant: 'destructive',
+   293→          })
+   294→        }
+   295→      } finally {
+   296→        setChecking(false)
+   297→      }
+   298→    },
+   299→    [checking, toast],
+   300→  )
+   301→
+   302→  // ---------- دورة البيانات: فورية + كل 8 ثوانٍ ----------
+   303→  useEffect(() => {
+   304→    if (!unlocked || !pin) return
+   305→    void loadAll(pin)
+   306→    pollRef.current = setInterval(() => {
+   307→      void loadAll(pin)
+   308→    }, POLL_MS)
+   309→    return () => {
+   310→      if (pollRef.current) {
+   311→        clearInterval(pollRef.current)
+   312→        pollRef.current = null
+   313→      }
+   314→    }
+   315→  }, [unlocked, pin, loadAll])
+   316→
+   317→  // ---------- البث اللحظي: غرفة admin:fleet ----------
+   318→  useEffect(() => {
+   319→    if (!unlocked) return
+   320→    const s = getSocket()
+   321→
+   322→    const refreshMoney = () => {
+   323→      void loadAll(pin)
+   324→    }
+   325→
+   326→    const onConnect = () => {
+   327→      setLive(true)
+   328→      joinRooms(['admin:fleet'])
+   329→      s.emit('fleet:snapshot_request')
+   330→    }
+   331→    const onDisconnect = () => setLive(false)
+   332→
+   333→    const onSnapshot = (list: FleetPos[]) => {
+   334→      if (!Array.isArray(list)) return
+   335→      setPositions((prev) => {
+   336→        const next = { ...prev }
+   337→        for (const rec of list) if (rec?.driverId) next[rec.driverId] = rec
+   338→        return next
+   339→      })
+   340→    }
+   341→
+   342→    const onDriverLocation = (rec: FleetPos) => {
+   343→      if (!rec?.driverId) return
+   344→      setPositions((prev) => ({ ...prev, [rec.driverId]: rec }))
+   345→    }
+   346→
+   347→    const onDriverStatus = (d: { driverId: string; fullName: string; status: DriverDTO['status'] }) => {
+   348→      if (!d?.driverId) return
+   349→      setPositions((prev) => {
+   350→        if (!prev[d.driverId]) return prev
+   351→        return {
+   352→          ...prev,
+   353→          [d.driverId]: { ...prev[d.driverId], status: d.status, updatedAt: new Date().toISOString() },
+   354→        }
+   355→      })
+   356→      setSummary((prev) =>
+   357→        prev
+   358→          ? { ...prev, drivers: prev.drivers.map((x) => (x.id === d.driverId ? { ...x, status: d.status } : x)) }
+   359→          : prev,
+   360→      )
+   361→      pushEvent('status', `🛵 الكابتن ${d.fullName} أصبح «${STATUS_LABELS[d.status] ?? d.status}»`)
+   362→    }
+   363→
+   364→    const onOrderStatus = (d: { orderId: string; status: string; orderNumber: string }) => {
+   365→      if (!d?.orderNumber) return
+   366→      pushEvent('status', `📦 الطلب ${d.orderNumber}: ${STATUS_LABELS[d.status] ?? d.status}`)
+   367→      setOrders((prev) =>
+   368→        prev.map((o) => (o.id === d.orderId ? { ...o, status: d.status as OrderDTO['status'] } : o)),
+   369→      )
+   370→    }
+   371→
+   372→    const onRadar = (d: { orderId: string; orderNumber: string; storeName: string; candidates: number }) => {
+   373→      if (!d?.orderNumber) return
+   374→      pushEvent(
+   375→        'radar',
+   376→        `📡 رادار: أُرسل عرض الطلب ${d.orderNumber} من «${d.storeName}» إلى ${d.candidates ?? 0} كابتن`,
+   377→      )
+   378→    }
+   379→
+   380→    const onCustodySettled = (d: { driverName: string; amount: number; voucherNumber: string }) => {
+   381→      if (!d?.voucherNumber) return
+   382→      pushEvent(
+   383→        'custody',
+   384→        `💰 توريد عهدة الكابتن ${d.driverName} بمبلغ ${(d.amount ?? 0).toFixed(2)} د.ل`,
+   385→        `سند قبض ${d.voucherNumber}`,
+   386→      )
+   387→      refreshMoney()
+   388→    }
+   389→
+   390→    const onStorePayout = (d: { storeName: string; amount: number; voucherNumber: string }) => {
+   391→      if (!d?.voucherNumber) return
+   392→      pushEvent(
+   393→        'payout',
+   394→        `🏪 صرف مستحقات متجر «${d.storeName}» بمبلغ ${(d.amount ?? 0).toFixed(2)} د.ل`,
+   395→        `سند صرف ${d.voucherNumber}`,
+   396→      )
+   397→      refreshMoney()
+   398→    }
+   399→
+   400→    const onPromoApplied = (d: { orderNumber?: string; promoCode?: string; promoLabel?: string; discountLyd?: number; customerName?: string }) => {
+   401→      if (!d?.promoCode) return
+   402→      pushEvent(
+   403→        'promo',
+   404→        `🎟️ استخدم الزبون ${d.customerName ?? ''} كوبون ${d.promoLabel ?? d.promoCode} على الطلب ${d.orderNumber ?? ''}`,
+   405→        `وفّرنا له ${(d.discountLyd ?? 0).toFixed(2)} د.ل — على حساب المنصة`,
+   406→      )
+   407→    }
+   408→
+   409→    const onTopupRedeemed = (d: { phone?: string; code?: string; amountLyd?: number; balance?: number }) => {
+   410→      if (!d?.code) return
+   411→      pushEvent(
+   412→        'topup',
+   413→        `🎁 شُحنت محفظة ${d.phone ?? ''} بكود ${d.code}`,
+   414→        `قيمة ${(d.amountLyd ?? 0).toFixed(2)} د.ل — الرصيد الآن ${(d.balance ?? 0).toFixed(2)} د.ل`,
+   415→      )
+   416→    }
+   417→
+   418→    const onGiftCardSold = (d: { orderNumber?: string; codesCount?: number; totalValueLyd?: number }) => {
+   419→      if (!d?.orderNumber) return
+   420→      pushEvent(
+   421→        'topup',
+   422→        `💳 صُدرت ${d.codesCount ?? 0} بطاقة شحن من واصل متاع — طلب ${d.orderNumber}`,
+   423→        `قيمة إجمالية ${(d.totalValueLyd ?? 0).toFixed(2)} د.ل — التزام على المنصة حتى استخدام الأكواد`,
+   424→      )
+   425→    }
+   426→
+   427→    if (s.connected) onConnect()
+   428→    s.on('connect', onConnect)
+   429→    s.on('disconnect', onDisconnect)
+   430→    s.on('fleet:snapshot', onSnapshot)
+   431→    s.on('fleet:driver_location', onDriverLocation)
+   432→    s.on('fleet:driver_status', onDriverStatus)
+   433→    s.on('order:status_changed', onOrderStatus)
+   434→    s.on('order:radar_broadcast', onRadar)
+   435→    s.on('driver:custody_settled', onCustodySettled)
+   436→    s.on('store:payout_settled', onStorePayout)
+   437→    s.on('store:promo_applied', onPromoApplied)
+   438→    s.on('wallet:topup_redeemed', onTopupRedeemed)
+   439→    s.on('store:giftcard_sold', onGiftCardSold)
+   440→
+   441→    return () => {
+   442→      s.off('connect', onConnect)
+   443→      s.off('disconnect', onDisconnect)
+   444→      s.off('fleet:snapshot', onSnapshot)
+   445→      s.off('fleet:driver_location', onDriverLocation)
+   446→      s.off('fleet:driver_status', onDriverStatus)
+   447→      s.off('order:status_changed', onOrderStatus)
+   448→      s.off('order:radar_broadcast', onRadar)
+   449→      s.off('driver:custody_settled', onCustodySettled)
+   450→      s.off('store:payout_settled', onStorePayout)
+   451→      s.off('store:promo_applied', onPromoApplied)
+   452→      s.off('wallet:topup_redeemed', onTopupRedeemed)
+   453→      s.off('store:giftcard_sold', onGiftCardSold)
+   454→      leaveRooms(['admin:fleet'])
+   455→    }
+   456→  }, [unlocked, pin, loadAll, pushEvent])
+   457→
+   458→  // ---------- الإجراءات المالية ----------
+   459→  const settleCustody = useCallback(
+   460→    async (driver: DriverDTO): Promise<SettleResult | null> => {
+   461→      setBusy(`settle:${driver.id}`)
+   462→      try {
+   463→        const r = await apiPost<SettleResult>(`/api/drivers/${driver.id}/settle`, { pin })
+   464→        toast({
+   465→          title: `تم توريد عهدة ${r.driver.fullName} للخزينة`,
+   466→          description: `سند قبض ${r.voucher.voucherNumber} — ${r.voucher.amountLyd.toFixed(2)} د.ل`,
+   467→        })
+   468→        void loadAll(pin)
+   469→        return r
+   470→      } catch (e) {
+   471→        handleAdminError(e)
+   472→        return null
+   473→      } finally {
+   474→        setBusy(null)
+   475→      }
+   476→    },
+   477→    [pin, loadAll, handleAdminError, toast],
+   478→  )
+   479→
+   480→  const payoutStore = useCallback(
+   481→    async (storeId: string, amount: number): Promise<PayoutStoreResult | null> => {
+   482→      setBusy(`payout:${storeId}`)
+   483→      try {
+   484→        const r = await apiPost<PayoutStoreResult>('/api/accounting/payout-store', {
+   485→          pin,
+   486→          store_id: storeId,
+   487→          amount,
+   488→        })
+   489→        toast({
+   490→          title: 'صُرفت مستحقات المتجر',
+   491→          description: `سند صرف ${r.voucher.voucherNumber} — ${r.voucher.amountLyd.toFixed(2)} د.ل • المتبقي ${r.remainingDues.toFixed(2)} د.ل`,
+   492→        })
+   493→        void loadAll(pin)
+   494→        return r
+   495→      } catch (e) {
+   496→        handleAdminError(e)
+   497→        return null
+   498→      } finally {
+   499→        setBusy(null)
+   500→      }
+   501→    },
+   502→    [pin, loadAll, handleAdminError, toast],
+   503→  )
+   504→
+   505→  const resolveNoShow = useCallback(
+   506→    async (order: OrderDTO): Promise<ResolveNoShowResult | null> => {
+   507→      setBusy(`noshow:${order.id}`)
+   508→      try {
+   509→        const r = await apiPost<ResolveNoShowResult>('/api/disputes/resolve-noshow', {
+   510→          pin,
+   511→          order_id: order.id,
+   512→        })
+   513→        toast({
+   514→          title: `فُضّ نزاع الطلب ${r.orderNumber}`,
+   515→          description: `صرف للمتجر ${r.storePayout.toFixed(2)} د.ل • ${r.captainPaid ? `أُودعت أجرة الكابتن ${r.captainFee.toFixed(2)} د.ل${r.captainVoucher ? ` بسند ${r.captainVoucher.voucherNumber}` : ''}` : 'لا يوجد كابتن مُعيَّن — لم تُصرف أي أجرة'} • حُظر الزبون ${r.blockedPhone}`,
+   516→        })
+   517→        void loadAll(pin)
+   518→        return r
+   519→      } catch (e) {
+   520→        handleAdminError(e)
+   521→        return null
+   522→      } finally {
+   523→        setBusy(null)
+   524→      }
+   525→    },
+   526→    [pin, loadAll, handleAdminError, toast],
+   527→  )
+   528→
+   529→  // ---------- إجراءات التسويق (كوبونات + أكواد شحن) ----------
+   530→  const createPromo = useCallback(
+   531→    async (data: CreatePromoInput): Promise<boolean> => {
+   532→      setBusy('promo:create')
+   533→      try {
+   534→        const r = await apiPost<{ ok: boolean }>('/api/admin/promos', { ...data, pin })
+   535→        toast({ title: '🎟️ أُنشئ الكوبون', description: 'ظهر فوراً على الزبائن — بالتوفيق في الحملة' })
+   536→        void loadAll(pin)
+   537→        return !!r.ok
+   538→      } catch (e) {
+   539→        handleAdminError(e)
+   540→        return false
+   541→      } finally {
+   542→        setBusy(null)
+   543→      }
+   544→    },
+   545→    [pin, loadAll, handleAdminError, toast],
+   546→  )
+   547→
+   548→  const togglePromo = useCallback(
+   549→    async (code: string, next: boolean) => {
+   550→      setBusy(`promo:${code}`)
+   551→      try {
+   552→        await api('/api/admin/promos', {
+   553→          method: 'PATCH',
+   554→          body: JSON.stringify({ pin, code, isActive: next }),
+   555→        })
+   556→        toast({
+   557→          title: next ? '🟢 فُعّل الكوبون' : '🟠 عُطّل الكوبون',
+   558→          description: `الكود ${code} ${next ? 'يظهر للزبائن الآن' : 'اختفى من الزبائن — الطلبات القائمة سليمة'}`,
+   559→        })
+   560→        void loadAll(pin)
+   561→      } catch (e) {
+   562→        handleAdminError(e)
+   563→      } finally {
+   564→        setBusy(null)
+   565→      }
+   566→    },
+   567→    [pin, loadAll, handleAdminError, toast],
+   568→  )
+   569→
+   570→  const generateCodes = useCallback(
+   571→    async (amountLyd: number, count: number, note: string): Promise<boolean> => {
+   572→      setBusy('gift:create')
+   573→      try {
+   574→        const r = await apiPost<{ ok: boolean; codes: string[] }>('/api/admin/topup-codes', {
+   575→          pin,
+   576→          amountLyd,
+   577→          count,
+   578→          note,
+   579→        })
+   580→        toast({
+   581→          title: `🎁 وُلّد ${r.codes.length} كود شحن`,
+   582→          description: `فئة ${amountLyd.toFixed(2)} د.ل — جهّزها للبيع في المقر`,
+   583→        })
+   584→        void loadAll(pin)
+   585→        return true
+   586→      } catch (e) {
+   587→        handleAdminError(e)
+   588→        return false
+   589→      } finally {
+   590→        setBusy(null)
+   591→      }
+   592→    },
+   593→    [pin, loadAll, handleAdminError, toast],
+   594→  )
+   595→
+   596→  const toggleGiftCode = useCallback(
+   597→    async (code: string, next: boolean) => {
+   598→      setBusy(`gift:${code}`)
+   599→      try {
+   600→        await api('/api/admin/topup-codes', {
+   601→          method: 'PATCH',
+   602→          body: JSON.stringify({ pin, code, isActive: next }),
+   603→        })
+   604→        toast({
+   605→          title: next ? '🟢 فُعّل الكود' : '🟠 عُطّل الكود',
+   606→          description: `الكود ${code} ${next ? 'صالح للاستخدام' : 'غير صالح حتى إعادة التفعيل'}`,
+   607→        })
+   608→        void loadAll(pin)
+   609→      } catch (e) {
+   610→        handleAdminError(e)
+   611→      } finally {
+   612→        setBusy(null)
+   613→      }
+   614→    },
+   615→    [pin, loadAll, handleAdminError, toast],
+   616→  )
+   617→
+   618→  const closeDay = useCallback(
+   619→    async (): Promise<AuditRecord | null> => {
+   620→      setBusy('close-day')
+   621→      try {
+   622→        const r = await apiPost<{ audit: AuditRecord }>('/api/accounting/close-day', { pin })
+   623→        toast({
+   624→          title: `صدر محضر الجرد ${r.audit.auditCode}`,
+   625→          description: 'قُفلت اليومية المالية وأُضيفت لسجل المحاضر',
+   626→        })
+   627→        void loadAll(pin)
+   628→        return r.audit
+   629→      } catch (e) {
+   630→        handleAdminError(e)
+   631→        return null
+   632→      } finally {
+   633→        setBusy(null)
+   634→      }
+   635→    },
+   636→    [pin, loadAll, handleAdminError, toast],
+   637→  )
+   638→
+   639→  // ---------- نمط الطباعة النظيف للسندات ----------
+   640→  const printCss = `
+   641→    @media print {
+   642→      body * { visibility: hidden !important; }
+   643→      .print-area, .print-area * { visibility: visible !important; }
+   644→      .print-area {
+   645→        position: absolute !important;
+   646→        top: 0 !important;
+   647→        left: 0 !important;
+   648→        right: 0 !important;
+   649→        margin: 0 auto !important;
+   650→        box-shadow: none !important;
+   651→      }
+   652→    }
+   653→  `
+   654→
+   655→  return (
+   656→    <div className="flex min-h-screen flex-col">
+   657→      <style>{printCss}</style>
+   658→
+   659→      <AnimatePresence mode="wait">
+   660→        {!unlocked ? (
+   661→          <motion.div key="pinlock" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+   662→            <PinLock
+   663→              pin={pin}
+   664→              onPinChange={setPin}
+   665→              checking={checking}
+   666→              errorNonce={errorNonce}
+   667→              onAttempt={(code) => void attemptUnlock(code)}
+   668→              onExit={onExit}
+   669→            />
+   670→          </motion.div>
+   671→        ) : (
+   672→          <motion.div
+   673→            key="hub"
+   674→            initial={{ opacity: 0, y: 14 }}
+   675→            animate={{ opacity: 1, y: 0 }}
+   676→            exit={{ opacity: 0 }}
+   677→            transition={{ duration: 0.35 }}
+   678→            className="flex min-h-screen flex-col"
+   679→          >
+   680→            {/* ======= الرأس العالي ======= */}
+   681→            <header className="sticky top-0 z-40 border-b border-[rgba(212,175,55,0.2)] bg-[#041710]/85 backdrop-blur-md">
+   682→              <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+   683→                <div className="flex items-center gap-3">
+   684→                  <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-[rgba(212,175,55,0.35)] bg-[#062319] text-xl">
+   685→                    🛡️
+   686→                  </span>
+   687→                  <div>
+   688→                    <h1 className="gold-text text-base font-extrabold leading-tight">غرفة العمليات والمالية</h1>
+   689→                    <p className="text-[11px] text-[#938E7E]">واصل نالوت — جبل نفوسة</p>
+   690→                  </div>
+   691→                </div>
+   692→
+   693→                <div className="flex flex-wrap items-center gap-2">
+   694→                  {/* مؤشر البث الحي */}
+   695→                  <span
+   696→                    className="flex min-h-9 items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold"
+   697→                    style={{
+   698→                      borderColor: live ? 'rgba(16,185,129,0.45)' : 'rgba(147,142,126,0.4)',
+   699→                      color: live ? '#10B981' : '#938E7E',
+   700→                      background: live ? 'rgba(16,185,129,0.08)' : 'rgba(147,142,126,0.08)',
+   701→                    }}
+   702→                  >
+   703→                    <span
+   704→                      className={`h-2 w-2 rounded-full ${live ? 'animate-pulse' : ''}`}
+   705→                      style={{ background: live ? '#10B981' : '#938E7E' }}
+   706→                    />
+   707→                    {live ? 'بث حي متصل' : 'البث غير متصل'}
+   708→                    {lastSync && (
+   709→                      <span className="ltr-nums font-money hidden font-normal text-[#938E7E] sm:inline">
+   710→                        {new Date(lastSync).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+   711→                      </span>
+   712→                    )}
+   713→                  </span>
+   714→
+   715→                  <Button
+   716→                    type="button"
+   717→                    variant="outline"
+   718→                    onClick={() => lockSession()}
+   719→                    className="min-h-12 border-[rgba(212,175,55,0.35)] bg-transparent px-4 text-[#F5D061] hover:bg-[#0A3324] hover:text-[#F5D061]"
+   720→                  >
+   721→                    <Lock className="h-4 w-4" />
+   722→                    قفل الجلسة
+   723→                  </Button>
+   724→                  <Button
+   725→                    type="button"
+   726→                    variant="ghost"
+   727→                    onClick={onExit}
+   728→                    className="min-h-12 px-4 text-[#938E7E] hover:bg-[#0A3324] hover:text-[#F5D061]"
+   729→                  >
+   730→                    <LogOut className="h-4 w-4" />
+   731→                    خروج
+   732→                  </Button>
+   733→                </div>
+   734→              </div>
+   735→            </header>
+   736→
+   737→            {/* ======= الجسم ======= */}
+   738→            <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-5">
+   739→              <Tabs value={tab} onValueChange={setTab} className="gap-4">
+   740→                <div className="wasel-scroll -mx-1 overflow-x-auto px-1 pb-1">
+   741→                  <TabsList className="h-auto w-full min-w-max justify-start gap-1 border border-[rgba(212,175,55,0.2)] bg-[#062319]/80 p-1.5">
+   742→                    {[
+   743→                      { v: 'dashboard', label: 'لوحة المؤشرات', icon: Gauge },
+   744→                      { v: 'fleet', label: 'الأسطول الحي', icon: MapIcon },
+   745→                      { v: 'orders', label: 'الطلبات والنزاعات', icon: ShoppingCart },
+   746→                      { v: 'captains', label: 'الكباتن', icon: Users },
+   747→                      { v: 'marketing', label: 'التسويق', icon: TicketPercent },
+   748→                      { v: 'accounting', label: 'المحاسبة Z', icon: ScrollText },
+   749→                      { v: 'stores', label: 'المتاجر', icon: StoreIcon },
+   750→                    ].map((t) => (
+   751→                      <TabsTrigger
+   752→                        key={t.v}
+   753→                        value={t.v}
+   754→                        className="data-[state=active]:border-[rgba(212,175,55,0.45)] data-[state=active]:bg-[#041710] data-[state=active]:text-[#F5D061] min-h-[48px] gap-2 rounded-xl border border-transparent px-4 text-[13px] font-bold text-[#938E7E]"
+   755→                      >
+   756→                        <t.icon className="h-4 w-4" />
+   757→                        {t.label}
+   758→                      </TabsTrigger>
+   759→                    ))}
+   760→                  </TabsList>
+   761→                </div>
+   762→
+   763→                <TabsContent value="dashboard">
+   764→                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+   765→                    <DashboardTab summary={summary} events={feed} lastSync={lastSync} />
+   766→                  </motion.div>
+   767→                </TabsContent>
+   768→
+   769→                <TabsContent value="fleet">
+   770→                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+   771→                    <FleetTab drivers={summary?.drivers ?? []} positions={positions} />
+   772→                  </motion.div>
+   773→                </TabsContent>
+   774→
+   775→                <TabsContent value="orders">
+   776→                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+   777→                    <OrdersTab orders={orders} busyKey={busy} onResolveNoShow={resolveNoShow} />
+   778→                  </motion.div>
+   779→                </TabsContent>
+   780→
+   781→                <TabsContent value="captains">
+   782→                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+   783→                    <CaptainsTab drivers={summary?.drivers ?? []} busyKey={busy} onSettle={settleCustody} />
+   784→                  </motion.div>
+   785→                </TabsContent>
+   786→
+   787→                <TabsContent value="accounting">
+   788→                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+   789→                    <ZAccountingTab summary={summary} vouchersData={vouchersData} busy={busy === 'close-day'} onCloseDay={closeDay} />
+   790→                  </motion.div>
+   791→                </TabsContent>
+   792→
+   793→                <TabsContent value="stores">
+   794→                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+   795→                    <StoresTab stores={summary?.stores ?? []} busyKey={busy} onPayout={payoutStore} />
+   796→                  </motion.div>
+   797→                </TabsContent>
+   798→
+   799→                <TabsContent value="marketing">
+   800→                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+   801→                    <MarketingTab
+   802→                      promos={promos}
+   803→                      codes={giftCodes}
+   804→                      busyKey={busy}
+   805→                      onCreatePromo={createPromo}
+   806→                      onTogglePromo={togglePromo}
+   807→                      onGenerateCodes={generateCodes}
+   808→                      onToggleCode={toggleGiftCode}
+   809→                    />
+   810→                  </motion.div>
+   811→                </TabsContent>
+   812→              </Tabs>
+   813→            </main>
+   814→
+   815→            {/* ======= التذييل اللاصق ======= */}
+   816→            <footer className="mt-auto border-t border-[rgba(212,175,55,0.18)] bg-[#041710]/90 py-3 text-center">
+   817→              <p className="text-[12px] font-semibold text-[#938E7E]">
+   818→                🛡️ <span className="gold-text font-bold">واصل نالوت — غرفة العمليات والمالية</span> • كل قرش مُساءل
+   819→              </p>
+   820→            </footer>
+   821→          </motion.div>
+   822→        )}
+   823→      </AnimatePresence>
+   824→    </div>
+   825→  )
+   826→}
+   827→

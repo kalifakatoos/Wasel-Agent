@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { assertAdminPin, generateAuditCode, money } from '@/lib/wasel/server-utils'
+import { getPromoRejectStats, getCashbackStats } from '@/lib/wasel/promos-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,6 +40,49 @@ export async function POST(req: NextRequest) {
         notes: (body.notes || 'تقفيل يومية واصل نالوت').slice(0, 300),
       },
     })
+
+    // 📉💸 تحليلات الفرص الضائعة والكاش باك وقت التقفيل (أعمدة جديدة — كتابة وقراءة عبر SQL خام)
+    const [rejects, cashback] = await Promise.all([
+      getPromoRejectStats(todayStart.getTime()),
+      getCashbackStats(todayStart.getTime()),
+    ])
+    const enriched = await db.$queryRawUnsafe<{
+      id: string
+      auditCode: string
+      auditDate: string | number
+      totalOrders: number
+      gmvLyd: number
+      cashCollectedLyd: number
+      merchantDuesLyd: number
+      platformNetLyd: number
+      isClosed: number
+      closedAt: string | number | null
+      notes: string
+      promoRejectsCount: number
+      promoRejectsLossLyd: number
+      cashbackCreditedLyd: number
+    }[]>(
+      `UPDATE "DailyAudit" SET "promoRejectsCount" = ?, "promoRejectsLossLyd" = ?, "cashbackCreditedLyd" = ?
+       WHERE id = ?
+       RETURNING *`,
+      rejects.count,
+      rejects.lostLyd,
+      cashback.total,
+      audit.id,
+    )
+    const row = enriched?.[0]
+    if (row) {
+      return NextResponse.json({
+        audit: {
+          ...audit,
+          auditDate: audit.auditDate.toISOString(),
+          closedAt: audit.closedAt?.toISOString() ?? null,
+          promoRejectsCount: Number(row.promoRejectsCount),
+          promoRejectsLossLyd: Number(row.promoRejectsLossLyd),
+          cashbackCreditedLyd: Number(row.cashbackCreditedLyd),
+        },
+      })
+    }
 
     return NextResponse.json({ audit })
   } catch (e) {

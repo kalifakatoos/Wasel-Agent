@@ -93,6 +93,8 @@ model Order {
   discountLyd    Float     @default(0)
   /// كود الخصم المطبق (إن وجد) — WASEL10 / NAALUT5 / JEBEL15
   promoCode      String?
+  /// كاش باك الكوبون المودع في محفظة الزبون عند التسليم (د.ل) — كوبونات kind='cashback'
+  cashbackLyd    Float     @default(0)
   totalLyd       Float
   deliveryAddress String
   district       String    @default("وسط نالوت")
@@ -154,6 +156,11 @@ model DailyAudit {
   merchantDuesLyd Float     @default(0)
   captainDuesLyd  Float     @default(0)
   platformNetLyd  Float     @default(0)
+  /// تحليلات الفرص الضائعة (محاولات كوبونات مرفوضة) وقت التقفيل
+  promoRejectsCount Int     @default(0)
+  promoRejectsLossLyd Float @default(0)
+  /// إجمالي كاش باك وُدع للمحافظ يوم المحضر
+  cashbackCreditedLyd Float @default(0)
   isClosed        Boolean   @default(false)
   closedAt        DateTime?
   notes           String    @default("")
@@ -195,6 +202,17 @@ model PromoCode {
   isActive         Boolean  @default(true)
   usedCount        Int      @default(0)
   totalDiscountLyd Float    @default(0)
+  createdAt        DateTime @default(now())
+}
+
+/// محاولات استخدام كوبونات رُفضت (تحليلات الفرص الضائعة — الندرة)
+model PromoReject {
+  id               String   @id @default(cuid())
+  code             String   // الكود الذي حاول الزبون
+  reason           String   // 'exhausted' نفدت الحصة | 'disabled' معطل | 'min_not_met' تحت الحد
+  phoneMasked      String   @default("") // 091****889
+  subtotalLyd      Float    @default(0) // قيمة سلة الزبون وقت المحاولة
+  wouldDiscountLyd Float    @default(0) // الخصم الذي كان سيحصل عليه (قيمة الفرصة)
   createdAt        DateTime @default(now())
 }
 

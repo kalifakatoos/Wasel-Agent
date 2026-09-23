@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { assertAdminPin, money } from '@/lib/wasel/server-utils'
+import { getPromoRejectStats, getCashbackStats } from '@/lib/wasel/promos-server'
 import type { AccountingSummary, DriverDTO } from '@/lib/wasel/types'
 
 export const dynamic = 'force-dynamic'
@@ -62,6 +63,11 @@ export async function GET(req: NextRequest) {
       promoBreakdown = []
     }
 
+    // 💸 كاش باك الكوبونات المودع للمحافظ اليوم (طلبات بعمود cashbackLyd)
+    const cashback = await getCashbackStats(todayStart.getTime())
+    // 📉 الفرص الضائعة: محاولات كوبونات مرفوضة اليوم (نفدت الحصة/معطل/تحت الحد)
+    const promoRejects = await getPromoRejectStats(todayStart.getTime())
+
     const storeDues = stores.map((s) => {
       const deliveredOrders = s.orders.filter((o) => o.deliveredAt && o.deliveredAt >= todayStart)
       const dues = money(deliveredOrders.reduce((acc, o) => acc + o.subtotalLyd * 0.9, 0))
@@ -96,6 +102,11 @@ export async function GET(req: NextRequest) {
       promoDiscountLyd,
       promoOrders,
       promoBreakdown,
+      // 💸 كاش باك الكوبونات المودع للمحافظ
+      promoCashbackLyd: cashback.total,
+      promoCashbackOrders: cashback.orders,
+      // 📉 الفرص الضائعة (محاولات كوبونات مرفوضة)
+      promoRejects,
       stores: storeDues,
       drivers: drivers.map((d) => ({ ...d, status: d.status as DriverDTO['status'] })),
       lastAudit: lastAudit
