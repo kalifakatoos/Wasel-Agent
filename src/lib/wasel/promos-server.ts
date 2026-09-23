@@ -18,6 +18,7 @@ export interface PromoRow {
   flatLyd: number | null
   maxDiscountLyd: number | null
   minSubtotalLyd: number
+  maxUses: number | null
   isActive: number | boolean
   usedCount: number
   totalDiscountLyd: number
@@ -35,6 +36,7 @@ export function promoRowToDef(p: PromoRow): PromoDef {
     flatLyd: p.flatLyd ?? undefined,
     maxDiscountLyd: p.maxDiscountLyd ?? undefined,
     minSubtotalLyd: p.minSubtotalLyd,
+    maxUses: p.maxUses ?? undefined,
   }
 }
 
@@ -72,12 +74,35 @@ export async function getActivePromos(): Promise<PromoDef[]> {
   try {
     await ensurePromosSeeded()
     const rows = await db.$queryRawUnsafe<PromoRow[]>(
-      `SELECT * FROM "PromoCode" WHERE "isActive" = 1 ORDER BY "minSubtotalLyd" ASC`,
+      `SELECT * FROM "PromoCode" WHERE "isActive" = 1 AND ("maxUses" IS NULL OR "usedCount" < "maxUses") ORDER BY "minSubtotalLyd" ASC`,
     )
     if (!rows || rows.length === 0) return PROMOS
     return rows.map(promoRowToDef)
   } catch {
     return PROMOS
+  }
+}
+
+/// الكوبونات النشطة مع عدّاد الاستخدام الحي (لشارة «المتبقي» على الزبائن)
+export interface PromoPublic extends PromoDef {
+  usedCount: number
+  remainingUses: number | null // null = بلا حصة
+}
+
+export async function getActivePromosWithMeta(): Promise<PromoPublic[]> {
+  try {
+    await ensurePromosSeeded()
+    const rows = await db.$queryRawUnsafe<PromoRow[]>(
+      `SELECT * FROM "PromoCode" WHERE "isActive" = 1 AND ("maxUses" IS NULL OR "usedCount" < "maxUses") ORDER BY "minSubtotalLyd" ASC`,
+    )
+    if (!rows || rows.length === 0) return PROMOS.map((p) => ({ ...p, usedCount: 0, remainingUses: null }))
+    return rows.map((r) => ({
+      ...promoRowToDef(r),
+      usedCount: r.usedCount,
+      remainingUses: r.maxUses != null ? Math.max(0, Number(r.maxUses) - r.usedCount) : null,
+    }))
+  } catch {
+    return PROMOS.map((p) => ({ ...p, usedCount: 0, remainingUses: null }))
   }
 }
 
@@ -105,6 +130,9 @@ export async function computePromoDiscountDb(codeRaw: string, subtotal: number):
   const row = rows?.[0]
   if (!row) return { ok: false, error: 'كود الخصم غير معروف' }
   if (!row.isActive) return { ok: false, error: 'هذا الكوبون مُعطّل حالياً' }
+  if (row.maxUses != null && row.usedCount >= Number(row.maxUses)) {
+    return { ok: false, error: 'نفدت نسخ هذا الكوبون — استُخدمت كل الحصص المخصصة' }
+  }
   if (subtotal < row.minSubtotalLyd) {
     return {
       ok: false,
@@ -122,11 +150,12 @@ export async function computePromoDiscountDb(codeRaw: string, subtotal: number):
   return { ok: true, promo: row, discount }
 }
 
-/// تسجيل استخدام الكوبون بعد نجاح الطلب
+/// تسجيل استخدام الكوبون بعد نجاح الطلب — ذرّي مع احترام حصة maxUses
 export async function recordPromoUsage(code: string, discount: number): Promise<void> {
   try {
     await db.$executeRawUnsafe(
-      `UPDATE "PromoCode" SET "usedCount" = "usedCount" + 1, "totalDiscountLyd" = "totalDiscountLyd" + ? WHERE UPPER("code") = UPPER(?)`,
+      `UPDATE "PromoCode" SET "usedCount" = "usedCount" + 1, "totalDiscountLyd" = "totalDiscountLyd" + ?
+       WHERE UPPER("code") = UPPER(?) AND ("maxUses" IS NULL OR "usedCount" < "maxUses")`,
       money(discount),
       code,
     )

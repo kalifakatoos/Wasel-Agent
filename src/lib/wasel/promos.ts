@@ -14,6 +14,11 @@ export interface PromoDef {
   flatLyd?: number
   maxDiscountLyd?: number
   minSubtotalLyd: number
+  /// حصة استخدام محدودة (اختياري) — للشارة الندرية على الواجهة
+  maxUses?: number
+  /// العدّاد الحي من الخادم (اختياري — يأتي من /api/promos)
+  usedCount?: number
+  remainingUses?: number | null
 }
 
 /// الكوبونات المعتمدة رسمياً في منظومة نالوت

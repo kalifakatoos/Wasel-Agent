@@ -201,23 +201,37 @@ function Column({
 }
 
 function ItemsList({ items, generalNotes, onWhite = false }: { items: OrderItem[]; generalNotes?: string; onWhite?: boolean }) {
+  const hasGiftCards = items.some((it) => it.productId.startsWith('giftcard-'))
   return (
     <div className="space-y-1.5">
-      {items.map((it, idx) => (
-        <div key={`${it.productId}-${idx}`}>
-          <div className="flex items-baseline justify-between gap-2 text-[13px]">
-            <span className={onWhite ? 'font-bold text-[#292524]' : 'font-bold text-[#F8F5EE]'}>
-              <span className="font-money ltr-nums text-[#D4AF37]">×{it.qty}</span> {it.title}
-            </span>
-            <Ly amount={it.qty * it.unitPrice} className={`shrink-0 text-xs ${onWhite ? 'text-[#57534e]' : 'text-[#938E7E]'}`} />
+      {hasGiftCards && (
+        <p className={`rounded-xl border border-dashed px-3 py-2 text-[11px] font-bold ${onWhite ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-[rgba(212,175,55,0.4)] bg-[rgba(212,175,55,0.07)] text-[#F5D061]'}`}>
+          💳 يتضمن بطاقات شحن واصل — الكود يُصدر آلياً من المنصة عند التسليم (لا يوجد بضاعة تُسلّم)
+        </p>
+      )}
+      {items.map((it, idx) => {
+        const isGiftCard = it.productId.startsWith('giftcard-')
+        return (
+          <div key={`${it.productId}-${idx}`}>
+            <div className="flex items-baseline justify-between gap-2 text-[13px]">
+              <span className={onWhite ? 'font-bold text-[#292524]' : 'font-bold text-[#F8F5EE]'}>
+                <span className="font-money ltr-nums text-[#D4AF37]">×{it.qty}</span> {it.title}
+                {isGiftCard && (
+                  <span className={`ms-1.5 inline-block rounded-full px-1.5 py-0.5 align-middle text-[8px] font-black ${onWhite ? 'bg-amber-200 text-amber-900' : 'bg-gradient-to-l from-[#D4AF37] to-[#F5D061] text-[#041710]'}`}>
+                    💳 بطاقة شحن
+                  </span>
+                )}
+              </span>
+              <Ly amount={it.qty * it.unitPrice} className={`shrink-0 text-xs ${onWhite ? 'text-[#57534e]' : 'text-[#938E7E]'}`} />
+            </div>
+            {it.notes ? (
+              <p className={`mt-0.5 rounded-lg px-2 py-1 text-[11px] font-semibold ${onWhite ? 'bg-amber-100 text-amber-800' : 'bg-[rgba(245,158,11,0.1)] text-[#fbbf24]'}`}>
+                ✏️ {it.notes}
+              </p>
+            ) : null}
           </div>
-          {it.notes ? (
-            <p className={`mt-0.5 rounded-lg px-2 py-1 text-[11px] font-semibold ${onWhite ? 'bg-amber-100 text-amber-800' : 'bg-[rgba(245,158,11,0.1)] text-[#fbbf24]'}`}>
-              ✏️ {it.notes}
-            </p>
-          ) : null}
-        </div>
-      ))}
+        )
+      })}
       {generalNotes ? (
         <p className={`mt-2 rounded-xl px-3 py-2 text-[12px] font-semibold leading-relaxed ${onWhite ? 'bg-amber-100 text-amber-900' : 'bg-[rgba(245,158,11,0.12)] text-[#fbbf24]'}`}>
           📝 ملاحظات الزبون: {generalNotes}

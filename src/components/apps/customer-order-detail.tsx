@@ -185,19 +185,31 @@ export function OrderDetailScreen({
         <div className="rounded-3xl border border-[rgba(212,175,55,0.18)] bg-[#062319] p-5">
           <p className="mb-3 text-xs font-extrabold tracking-wide text-[#D4AF37]">🛒 أصناف الطلب</p>
           <div className="space-y-2.5">
-            {order.items.map((it, idx) => (
-              <div key={`${it.productId}-${idx}`} className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-[#F8F5EE]">
-                    <span className="font-money text-[#F5D061]">{it.qty}×</span> {it.title}
-                  </p>
-                  {it.notes ? (
-                    <p className="mt-0.5 text-[11px] text-[#F59E0B]">📝 {it.notes}</p>
-                  ) : null}
+            {order.items.map((it, idx) => {
+              const isGiftCard = it.productId.startsWith('giftcard-')
+              return (
+                <div key={`${it.productId}-${idx}`} className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-[#F8F5EE]">
+                      <span className="font-money text-[#F5D061]">{it.qty}×</span> {it.title}
+                      {isGiftCard && (
+                        <span className="ms-2 inline-block rounded-full bg-gradient-to-l from-[#D4AF37] to-[#F5D061] px-1.5 py-0.5 align-middle text-[8px] font-black text-[#041710]">
+                          💳 بطاقة شحن
+                        </span>
+                      )}
+                    </p>
+                    {isGiftCard ? (
+                      <p className="mt-0.5 text-[11px] font-bold text-[#10B981]">
+                        🔐 الكود أُصدر آلياً عند التسليم — تجده في صندوق الإشعارات
+                      </p>
+                    ) : it.notes ? (
+                      <p className="mt-0.5 text-[11px] text-[#F59E0B]">📝 {it.notes}</p>
+                    ) : null}
+                  </div>
+                  <Ly amount={it.unitPrice * it.qty} className="shrink-0 text-sm text-[#F8F5EE]" />
                 </div>
-                <Ly amount={it.unitPrice * it.qty} className="shrink-0 text-sm text-[#F8F5EE]" />
-              </div>
-            ))}
+              )
+            })}
           </div>
 
           <Separator className="my-4 bg-[rgba(212,175,55,0.15)]" />

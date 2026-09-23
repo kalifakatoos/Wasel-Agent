@@ -219,3 +219,57 @@
   direction: ltr;
   unicode-bidi: embed;
 }
+
+/* ====== التركيز الذهبي الفاخر (إتاحة + هوية) ====== */
+:focus-visible {
+  outline: 2px solid rgba(212, 175, 55, 0.75);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ====== إزالة تظليل اللمس على الجوال ====== */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+html {
+  scroll-behavior: smooth;
+}
+
+/* ====== لمعان تذاكر الكوبونات (سحب ضوئي بطيء) ====== */
+@keyframes wasel-sheen {
+  0% {
+    transform: translateX(-160%) skewX(-18deg);
+  }
+  55%,
+  100% {
+    transform: translateX(260%) skewX(-18deg);
+  }
+}
+.ticket-sheen {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 34%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(245, 208, 97, 0.14) 45%,
+    rgba(245, 208, 97, 0.28) 50%,
+    rgba(245, 208, 97, 0.14) 55%,
+    transparent 100%
+  );
+  animation: wasel-sheen 4.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ====== رفعة بطاقات عند التحويم ====== */
+.card-lift {
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    border-color 0.25s ease;
+}
+.card-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px rgba(4, 23, 16, 0.55);
+}

@@ -6,7 +6,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { motion } from 'framer-motion'
-import { BadgeAlert, Ban, Landmark, ScrollText, ShieldCheck } from 'lucide-react'
+import { BadgeAlert, Ban, Landmark, Printer, ScrollText, ShieldCheck } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -156,15 +156,25 @@ export default function ZAccountingTab({
                       <Ly amount={a.platformNetLyd} bold className="text-[12px] text-[#10B981]" />
                     </TableCell>
                     <TableCell>
-                      <span
-                        className="rounded-full px-2 py-0.5 text-[10px] font-bold"
-                        style={{
-                          color: a.isClosed ? '#10B981' : '#F5D061',
-                          background: a.isClosed ? 'rgba(16,185,129,0.12)' : 'rgba(212,175,55,0.12)',
-                        }}
-                      >
-                        {a.isClosed ? 'مقفل' : 'مفتوح'}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className="rounded-full px-2 py-0.5 text-[10px] font-bold"
+                          style={{
+                            color: a.isClosed ? '#10B981' : '#F5D061',
+                            background: a.isClosed ? 'rgba(16,185,129,0.12)' : 'rgba(212,175,55,0.12)',
+                          }}
+                        >
+                          {a.isClosed ? 'مقفل' : 'مفتوح'}
+                        </span>
+                        <button
+                          onClick={() => printZReport(a)}
+                          aria-label={`طباعة محضر ${a.auditCode}`}
+                          title="طباعة / حفظ PDF"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-[#938E7E] transition hover:bg-[rgba(212,175,55,0.12)] hover:text-[#F5D061]"
+                        >
+                          <Printer className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -333,6 +343,15 @@ export default function ZAccountingTab({
                 ✓ اليومية مقفلة ومحاسَبة — كل قرش مُساءل
               </p>
               {audit.notes && <p className="mt-2 text-center text-[11px] text-[#938E7E]">{audit.notes}</p>}
+
+              {/* 🖨️ طباعة المحضر / حفظه PDF */}
+              <Button
+                onClick={() => printZReport(audit)}
+                className="mt-4 h-12 w-full rounded-xl border border-[rgba(212,175,55,0.45)] bg-[#041710] text-sm font-extrabold text-[#F5D061] transition hover:bg-[rgba(212,175,55,0.1)]"
+              >
+                <Printer className="h-4 w-4" />
+                طباعة المحضر / حفظه PDF
+              </Button>
             </motion.div>
           )}
         </DialogContent>
@@ -348,4 +367,120 @@ function ZRow({ label, value }: { label: string; value: ReactNode }) {
       {value}
     </li>
   )
+}
+
+// ============================================================
+// 🖨️ طباعة محضر Z — A4 عربي RTL جاهز للحفظ PDF أو الورق
+// عبر iframe خفي كي لا تتأثر ستايلات التطبيق الداكنة
+// ============================================================
+function buildZPrintHtml(a: AuditRecord): string {
+  const fmt = (n: number) => n.toFixed(2)
+  const rows: [string, string][] = [
+    ['إجمالي الطلبات اليوم', String(a.totalOrders)],
+    ['إجمالي التداول GMV', `${fmt(a.gmvLyd)} د.ل`],
+    ['الكاش المحصل', `${fmt(a.cashCollectedLyd)} د.ل`],
+  ]
+  if (a.merchantDuesLyd !== undefined) rows.push(['مستحقات التجار', `${fmt(a.merchantDuesLyd)} د.ل`])
+  rows.push(['صافي أرباح المنصة', `${fmt(a.platformNetLyd)} د.ل`])
+
+  const dateText = new Date(a.auditDate).toLocaleString('ar-LY', {
+    dateStyle: 'full',
+    timeStyle: 'short',
+  })
+
+  return `<!doctype html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="utf-8" />
+<title>محضر جرد يومي Z — ${a.auditCode}</title>
+<style>
+  @page { size: A4; margin: 14mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Tajawal', 'Cairo', 'Segoe UI', Tahoma, sans-serif;
+    color: #1a1a1a;
+    background: #fff;
+    padding: 24px;
+  }
+  .sheet { max-width: 640px; margin: 0 auto; }
+  .head {
+    text-align: center;
+    border: 2px solid #0a5c3c;
+    border-radius: 12px;
+    padding: 18px 16px;
+    background: #f2faf6;
+  }
+  .head .brand { font-size: 20px; font-weight: 800; color: #0a5c3c; }
+  .head .code { font-size: 26px; font-weight: 800; letter-spacing: 1px; margin-top: 6px; color: #b8860b; font-variant-numeric: tabular-nums; }
+  .head .date { font-size: 12px; color: #555; margin-top: 4px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 22px; }
+  td { padding: 12px 10px; border-bottom: 1px dotted #999; font-size: 14px; }
+  td.v { text-align: left; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.total td { border-bottom: 2px solid #0a5c3c; color: #0a5c3c; font-size: 15px; }
+  .seal {
+    margin-top: 24px;
+    border: 1.5px dashed #0a5c3c;
+    border-radius: 10px;
+    padding: 12px;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 700;
+    color: #0a5c3c;
+    background: #f2faf6;
+  }
+  .notes { margin-top: 14px; font-size: 12px; color: #444; text-align: center; }
+  .sign { margin-top: 42px; display: flex; justify-content: space-between; }
+  .sign div { width: 44%; border-top: 1.5px solid #333; padding-top: 8px; text-align: center; font-size: 12px; color: #333; }
+  .foot { margin-top: 34px; text-align: center; font-size: 11px; color: #888; }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="head">
+      <div class="brand">🛡️ واصل نالوت — غرفة العمليات والمالية</div>
+      <div style="font-size:13px;color:#555;margin-top:4px">محضر جرد يومي رسمي — Z Report</div>
+      <div class="code">${a.auditCode}</div>
+      <div class="date">${dateText}</div>
+    </div>
+    <table>
+      ${rows
+        .map(
+          ([k, v]) =>
+            `<tr><td>${k}</td><td class="v">${v}</td></tr>`,
+        )
+        .join('\n      ')}
+      <tr class="total"><td>حالة اليومية</td><td class="v">${a.isClosed ? 'مقفلة ومعتمدة ✓' : 'مفتوحة'}</td></tr>
+    </table>
+    <div class="seal">✓ اليومية مقفلة ومحاسَبة — كل قرش مُساءل بموجب ميثاق واصل الشرعي</div>
+    ${a.notes ? `<div class="notes">ملاحظات: ${a.notes}</div>` : ''}
+    <div class="sign">
+      <div>توقيع أمين الصندوق</div>
+      <div>توقيع مدير العمليات</div>
+    </div>
+    <div class="foot">واصل نالوت • نالوت، ليبيا • بالدينار الليبي حصرياً • لا رسوم خفية</div>
+  </div>
+</body>
+</html>`
+}
+
+function printZReport(a: AuditRecord): void {
+  const iframe = document.createElement('iframe')
+  iframe.style.position = 'fixed'
+  iframe.style.right = '0'
+  iframe.style.bottom = '0'
+  iframe.style.width = '0'
+  iframe.style.height = '0'
+  iframe.style.border = '0'
+  document.body.appendChild(iframe)
+  const doc = iframe.contentWindow?.document
+  if (!doc) return
+  doc.open()
+  doc.write(buildZPrintHtml(a))
+  doc.close()
+  // مهلة قصيرة لرندر الخطوط والجداول قبل فتح حوار الطباعة
+  iframe.contentWindow?.focus()
+  window.setTimeout(() => {
+    iframe.contentWindow?.print()
+    window.setTimeout(() => iframe.remove(), 1200)
+  }, 350)
 }

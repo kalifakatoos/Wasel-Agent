@@ -251,7 +251,7 @@ export default function WaselMain() {
             كوبونات واصل النشطة 🎟️
             <span className="h-px flex-1 bg-gradient-to-r from-transparent to-[rgba(212,175,55,0.4)]" />
           </h3>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="flex flex-wrap justify-center gap-4">
             {promos.map((promo, i) => (
               <motion.div
                 key={promo.code}
@@ -259,11 +259,13 @@ export default function WaselMain() {
                 whileInView={{ opacity: 1, scale: 1 }}
                 viewport={{ once: true }}
                 transition={{ delay: i * 0.08, duration: 0.4 }}
-                className="relative overflow-hidden rounded-2xl border border-dashed border-[rgba(212,175,55,0.45)] bg-gradient-to-br from-[#062319] to-[#0A3324] p-5"
+                className="card-lift relative w-full overflow-hidden rounded-2xl border border-dashed border-[rgba(212,175,55,0.45)] bg-gradient-to-br from-[#062319] to-[#0A3324] p-5 hover:border-[rgba(212,175,55,0.8)] sm:w-[calc(50%-8px)] lg:w-[calc(25%-12px)]"
               >
+                {/* لمعان التذكرة — سحب ضوئي بطيء */}
+                <span className="ticket-sheen" aria-hidden="true" />
                 {/* ثقبة التذكرة الجانبية */}
-                <span className="absolute -right-3 top-1/2 h-6 w-6 -translate-y-1/2 rounded-full bg-[#041710]" aria-hidden="true" />
-                <span className="absolute -left-3 top-1/2 h-6 w-6 -translate-y-1/2 rounded-full bg-[#041710]" aria-hidden="true" />
+                <span className="absolute -right-3 top-1/2 z-10 h-6 w-6 -translate-y-1/2 rounded-full bg-[#041710]" aria-hidden="true" />
+                <span className="absolute -left-3 top-1/2 z-10 h-6 w-6 -translate-y-1/2 rounded-full bg-[#041710]" aria-hidden="true" />
                 <div className="flex items-start justify-between">
                   <span className="text-3xl">{promo.emoji}</span>
                   <span
@@ -275,6 +277,24 @@ export default function WaselMain() {
                 </div>
                 <p className="mt-3 text-sm font-extrabold text-[#F8F5EE]">{promo.label}</p>
                 <p className="mt-1 text-[11px] leading-relaxed text-[#938E7E]">{promo.description}</p>
+                {(() => {
+                  const remaining = promo.remainingUses ?? null
+                  if (remaining == null) return null
+                  const scarce = remaining <= 3
+                  return (
+                    <span
+                      className={`mt-3 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black ${
+                        remaining <= 1
+                          ? 'animate-pulse bg-[rgba(239,68,68,0.15)] text-[#EF4444]'
+                          : scarce
+                            ? 'bg-[rgba(245,158,11,0.15)] text-[#F59E0B]'
+                            : 'bg-[rgba(16,185,129,0.12)] text-[#10B981]'
+                      }`}
+                    >
+                      🔥 {remaining <= 1 ? 'آخر استخدام متبقٍ!' : `متبقٍ ${remaining} استخدامات فقط`}
+                    </span>
+                  )
+                })()}
               </motion.div>
             ))}
           </div>

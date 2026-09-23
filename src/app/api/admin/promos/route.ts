@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
     const {
       code, label, description, emoji, kind,
-      percent: percentIn, flatLyd, maxDiscountLyd, minSubtotalLyd,
+      percent: percentIn, flatLyd, maxDiscountLyd, minSubtotalLyd, maxUses,
     } = body as {
       code?: string
       label?: string
@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       flatLyd?: number
       maxDiscountLyd?: number
       minSubtotalLyd?: number
+      maxUses?: number
     }
 
     const cleanCode = (code || '').trim().toUpperCase()
@@ -68,11 +69,13 @@ export async function POST(req: NextRequest) {
     if (finalKind === 'flat' && cap != null && flat != null && cap <= flat) {
       return NextResponse.json({ error: 'سقف الخصم يجب أن يكون أكبر من قيمة الخصم الثابت' }, { status: 400 })
     }
+    // حصة الاستخدام الاختيارية: null = غير محدودة
+    const uses = maxUses != null && Number(maxUses) > 0 ? Math.floor(Number(maxUses)) : null
 
     const id = `promo_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
     await db.$executeRawUnsafe(
-      `INSERT INTO "PromoCode" ("id","code","label","description","emoji","kind","percent","flatLyd","maxDiscountLyd","minSubtotalLyd","isActive","usedCount","totalDiscountLyd","createdAt")
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, ?)`,
+      `INSERT INTO "PromoCode" ("id","code","label","description","emoji","kind","percent","flatLyd","maxDiscountLyd","minSubtotalLyd","maxUses","isActive","usedCount","totalDiscountLyd","createdAt")
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, ?)`,
       id,
       cleanCode,
       label.trim().slice(0, 60),
@@ -83,6 +86,7 @@ export async function POST(req: NextRequest) {
       flat,
       cap,
       minSub,
+      uses,
       new Date().toISOString(),
     )
 

@@ -57,6 +57,8 @@ export function CheckoutScreen({
   const [promoList, setPromoList] = useState<PromoDef[]>(PROMOS) // 🎟️ حية من غرفة العمليات
 
   const subtotal = cart.reduce((n, i) => n + i.qty * i.unitPrice, 0)
+  const giftCardItems = cart.filter((i) => i.productId.startsWith('giftcard-'))
+  const hasGiftCards = giftCardItems.length > 0
 
   // جلب الكوبونات النشطة الحية (مع بقاء الافتراضية كحلاء احتياطي)
   useEffect(() => {
@@ -211,6 +213,27 @@ export function CheckoutScreen({
           <Ly amount={subtotal} bold className="text-[#F5D061]" />
         )}
       </div>
+
+      {/* 💳 تنبيه بطاقات الشحن — الأكواد تُصدر عند التسليم */}
+      {hasGiftCards && (
+        <div className="relative mb-5 overflow-hidden rounded-2xl border border-dashed border-[rgba(212,175,55,0.55)] bg-gradient-to-l from-[rgba(212,175,55,0.1)] to-[rgba(212,175,55,0.03)] px-4 py-3.5">
+          <span className="absolute -left-2.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-[#041710]" aria-hidden="true" />
+          <span className="absolute -right-2.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-[#041710]" aria-hidden="true" />
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[rgba(212,175,55,0.4)] bg-[#041710] text-xl">
+              🎁
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-extrabold text-[#F5D061]">
+                يتضمن طلبك {giftCardItems.reduce((n, i) => n + i.qty, 0)} بطاقة شحن واصل
+              </p>
+              <p className="mt-0.5 text-[10px] leading-relaxed text-[#938E7E]">
+                🔐 كود الشحن يُصدر آلياً <b className="text-[#10B981]">عند التسليم</b> ويصل إلى صندوق إشعاراتك ومحفظتك مباشرة
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-4">
         {/* الهوية */}
@@ -423,6 +446,8 @@ export function CheckoutScreen({
             <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
               {promoList.map((p) => {
                 const eligible = subtotal >= p.minSubtotalLyd
+                const remaining = p.remainingUses ?? null
+                const scarce = remaining != null && remaining <= 3
                 return (
                   <button
                     key={p.code}
@@ -440,6 +465,18 @@ export function CheckoutScreen({
                     <span className="block text-xl">{p.emoji}</span>
                     <span className="mt-1 block text-[11px] font-extrabold text-[#F8F5EE]">{p.label}</span>
                     <span className="mt-0.5 block text-[9.5px] leading-relaxed text-[#938E7E]">{p.description}</span>
+                    {/* شارة الندرة — العدّاد الحي من غرفة العمليات */}
+                    {scarce && remaining != null && (
+                      <span
+                        className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-black ${
+                          remaining <= 1
+                            ? 'animate-pulse bg-[rgba(239,68,68,0.15)] text-[#EF4444]'
+                            : 'bg-[rgba(245,158,11,0.15)] text-[#F59E0B]'
+                        }`}
+                      >
+                        🔥 {remaining <= 1 ? 'آخر استخدام!' : `آخر ${remaining} استخدامات`}
+                      </span>
+                    )}
                     {!eligible && (
                       <span className="mt-1 block text-[9px] font-bold text-[#F59E0B]">
                         يتطلب {p.minSubtotalLyd.toFixed(0)} د.ل على الأقل

@@ -1,0 +1,600 @@
+     1→'use client'
+     2→
+     3→// ============================================================
+     4→// 🎟️ تاب التسويق — غرفة عمليات واصل نالوت
+     5→// إدارة كوبونات الخصم (إنشاء/تعطيل/إحصائيات) + أكواد شحن المحفظة
+     6→// الخصم تتحمله المنصة كاملاً — دينار ليبي حصرياً
+     7→// ============================================================
+     8→import { useState } from 'react'
+     9→import { motion } from 'framer-motion'
+    10→import { Copy, Loader2, Plus, TicketPercent, Gift } from 'lucide-react'
+    11→import { Button } from '@/components/ui/button'
+    12→import { Input } from '@/components/ui/input'
+    13→import { Label } from '@/components/ui/label'
+    14→import { Textarea } from '@/components/ui/textarea'
+    15→import { Switch } from '@/components/ui/switch'
+    16→import { Badge } from '@/components/ui/badge'
+    17→import {
+    18→  Dialog,
+    19→  DialogContent,
+    20→  DialogDescription,
+    21→  DialogHeader,
+    22→  DialogTitle,
+    23→  DialogTrigger,
+    24→} from '@/components/ui/dialog'
+    25→import {
+    26→  Select,
+    27→  SelectContent,
+    28→  SelectItem,
+    29→  SelectTrigger,
+    30→  SelectValue,
+    31→} from '@/components/ui/select'
+    32→import { useToast } from '@/hooks/use-toast'
+    33→import { Ly } from '@/components/wasel/Badges'
+    34→import { fmtDateTime } from './admin-shared'
+    35→import type { PromoAdmin, TopupCodeAdmin } from './admin-shared'
+    36→
+    37→export interface CreatePromoInput {
+    38→  code: string
+    39→  label: string
+    40→  description: string
+    41→  emoji: string
+    42→  kind: 'percent' | 'flat'
+    43→  percent?: number
+    44→  flatLyd?: number
+    45→  maxDiscountLyd?: number
+    46→  minSubtotalLyd: number
+    47→}
+    48→
+    49→function promoValueLabel(p: PromoAdmin): string {
+    50→  if (p.kind === 'flat') return `خصم ثابت ${(p.flatLyd ?? 0).toFixed(2)} د.ل`
+    51→  const cap = p.maxDiscountLyd != null ? ` حتى سقف ${p.maxDiscountLyd.toFixed(2)} د.ل` : ''
+    52→  return `خصم ${p.percent}%${cap}`
+    53→}
+    54→
+    55→// ============================================================
+    56→// بطاقة كوبون بشكل تذكرة مثقوبة
+    57→// ============================================================
+    58→function PromoTicket({
+    59→  promo,
+    60→  busy,
+    61→  onToggle,
+    62→}: {
+    63→  promo: PromoAdmin
+    64→  busy: boolean
+    65→  onToggle: (next: boolean) => void
+    66→}) {
+    67→  return (
+    68→    <motion.div
+    69→      initial={{ opacity: 0, y: 8 }}
+    70→      animate={{ opacity: 1, y: 0 }}
+    71→      className={`relative overflow-hidden rounded-2xl border border-dashed p-4 transition-all ${
+    72→        promo.isActive
+    73→          ? 'border-[rgba(212,175,55,0.5)] bg-gradient-to-bl from-[#0A3324] via-[#062319] to-[#041710]'
+    74→          : 'border-[rgba(147,142,126,0.3)] bg-[#041710]/70 opacity-70'
+    75→      }`}
+    76→    >
+    77→      {/* ثقوب التذكرة */}
+    78→      <span className="absolute -left-3 top-1/2 h-6 w-6 -translate-y-1/2 rounded-full bg-[#041710] ring-1 ring-[rgba(212,175,55,0.25)]" />
+    79→      <span className="absolute -right-3 top-1/2 h-6 w-6 -translate-y-1/2 rounded-full bg-[#041710] ring-1 ring-[rgba(212,175,55,0.25)]" />
+    80→
+    81→      <div className="flex items-start justify-between gap-3">
+    82→        <div className="flex min-w-0 items-start gap-3">
+    83→          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[rgba(212,175,55,0.3)] bg-[#041710] text-2xl">
+    84→            {promo.emoji}
+    85→          </span>
+    86→          <div className="min-w-0">
+    87→            <p className="font-money ltr-nums text-sm font-black tracking-widest text-[#F5D061]" dir="ltr">
+    88→              {promo.code}
+    89→            </p>
+    90→            <p className="mt-0.5 truncate text-xs font-extrabold text-[#F8F5EE]">{promo.label}</p>
+    91→            <p className="mt-0.5 line-clamp-2 text-[10px] leading-relaxed text-[#938E7E]">{promo.description}</p>
+    92→          </div>
+    93→        </div>
+    94→        <div className="flex shrink-0 flex-col items-end gap-2">
+    95→          <Switch
+    96→            checked={promo.isActive}
+    97→            disabled={busy}
+    98→            onCheckedChange={onToggle}
+    99→            aria-label={`${promo.isActive ? 'تعطيل' : 'تفعيل'} الكوبون ${promo.code}`}
+   100→          />
+   101→          <Badge
+   102→            className={`border-0 px-2 py-0.5 text-[9px] font-bold ${
+   103→              promo.isActive
+   104→                ? 'bg-[rgba(16,185,129,0.15)] text-[#10B981]'
+   105→                : 'bg-[rgba(147,142,126,0.15)] text-[#938E7E]'
+   106→            }`}
+   107→          >
+   108→            {promo.isActive ? 'نشط' : 'مُعطّل'}
+   109→          </Badge>
+   110→        </div>
+   111→      </div>
+   112→
+   113→      {/* خط perforation أفقي */}
+   114→      <div className="my-3 border-t border-dashed border-[rgba(212,175,55,0.25)]" />
+   115→
+   116→      <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+   117→        <div className="rounded-xl bg-[rgba(212,175,55,0.07)] px-2 py-2">
+   118→          <p className="text-[10px] font-semibold text-[#938E7E]">قيمة الخصم</p>
+   119→          <p className="mt-0.5 text-[11px] font-extrabold text-[#F8F5EE]">{promoValueLabel(promo)}</p>
+   120→        </div>
+   121→        <div className="rounded-xl bg-[rgba(212,175,55,0.07)] px-2 py-2">
+   122→          <p className="text-[10px] font-semibold text-[#938E7E]">حد أدنى للطلب</p>
+   123→          <p className="mt-0.5 text-[11px] font-extrabold text-[#F8F5EE]">
+   124→            {promo.minSubtotalLyd > 0 ? `${promo.minSubtotalLyd.toFixed(2)} د.ل` : 'بلا حد'}
+   125→          </p>
+   126→        </div>
+   127→        <div className="rounded-xl bg-[rgba(16,185,129,0.08)] px-2 py-2">
+   128→          <p className="text-[10px] font-semibold text-[#938E7E]">مرات الاستخدام</p>
+   129→          <p className="font-money ltr-nums mt-0.5 text-[11px] font-extrabold text-[#10B981]">{promo.usedCount}</p>
+   130→        </div>
+   131→        <div className="rounded-xl bg-[rgba(16,185,129,0.08)] px-2 py-2">
+   132→          <p className="text-[10px] font-semibold text-[#938E7E]">إجمالي ما وُفّر</p>
+   133→          <Ly amount={promo.totalDiscountLyd} bold className="text-[11px] text-[#10B981]" />
+   134→        </div>
+   135→      </div>
+   136→      <p className="font-money ltr-nums mt-2 text-[9px] text-[#938E7E]/60">
+   137→        أُنشئ: {fmtDateTime(promo.createdAt)} • الخصم على حساب المنصة (تسويق)
+   138→      </p>
+   139→    </motion.div>
+   140→  )
+   141→}
+   142→
+   143→// ============================================================
+   144→// صف كود شحن
+   145→// ============================================================
+   146→function TopupCodeRow({
+   147→  code,
+   148→  busy,
+   149→  onToggle,
+   150→}: {
+   151→  code: TopupCodeAdmin
+   152→  busy: boolean
+   153→  onToggle: (next: boolean) => void
+   154→}) {
+   155→  const { toast } = useToast()
+   156→  const used = !!code.usedByPhone
+   157→  const stateLabel = used ? 'مستهلك' : code.isActive ? 'نشط' : 'مُعطّل'
+   158→  const stateClass = used
+   159→    ? 'bg-[rgba(147,142,126,0.15)] text-[#938E7E]'
+   160→    : code.isActive
+   161→      ? 'bg-[rgba(16,185,129,0.15)] text-[#10B981]'
+   162→      : 'bg-[rgba(245,158,11,0.15)] text-[#F59E0B]'
+   163→
+   164→  const copy = async () => {
+   165→    try {
+   166→      await navigator.clipboard.writeText(code.code)
+   167→      toast({ title: '📋 نُسخ الكود', description: code.code })
+   168→    } catch {
+   169→      toast({ title: code.code, description: 'انسخ الكود يدوياً' })
+   170→    }
+   171→  }
+   172→
+   173→  return (
+   174→    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[rgba(212,175,55,0.18)] bg-[#041710] px-3 py-2.5">
+   175→      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0A3324] text-lg">
+   176→        🎁
+   177→      </span>
+   178→      <div className="min-w-0 flex-1">
+   179→        <p className="font-money ltr-nums text-xs font-black tracking-wider text-[#F5D061]" dir="ltr">
+   180→          {code.code}
+   181→        </p>
+   182→        <p className="mt-0.5 text-[10px] text-[#938E7E]">
+   183→          {used ? (
+   184→            <>
+   185→              استهلكه <span dir="ltr" className="font-money">{code.usedByPhone}</span>
+   186→            </>
+   187→          ) : (
+   188→            code.note || 'كود شحن محفظة — يُستخدم مرة واحدة'
+   189→          )}
+   190→          {' • '}
+   191→          <span className="font-money ltr-nums">{fmtDateTime(code.createdAt)}</span>
+   192→        </p>
+   193→      </div>
+   194→      <Ly amount={code.amountLyd} bold className="text-sm text-[#10B981]" />
+   195→      <Badge className={`border-0 px-2 py-0.5 text-[9px] font-bold ${stateClass}`}>{stateLabel}</Badge>
+   196→      <div className="flex items-center gap-1.5">
+   197→        <button
+   198→          onClick={copy}
+   199→          aria-label={`نسخ الكود ${code.code}`}
+   200→          className="flex h-11 w-11 items-center justify-center rounded-lg text-[#938E7E] transition hover:bg-[rgba(212,175,55,0.12)] hover:text-[#F5D061]"
+   201→        >
+   202→          <Copy className="h-4 w-4" />
+   203→        </button>
+   204→        {!used && (
+   205→          <Switch
+   206→            checked={code.isActive}
+   207→            disabled={busy}
+   208→            onCheckedChange={onToggle}
+   209→            aria-label={`${code.isActive ? 'تعطيل' : 'تفعيل'} كود الشحن ${code.code}`}
+   210→          />
+   211→        )}
+   212→      </div>
+   213→    </div>
+   214→  )
+   215→}
+   216→
+   217→// ============================================================
+   218→// التاب الرئيسي
+   219→// ============================================================
+   220→export default function MarketingTab({
+   221→  promos,
+   222→  codes,
+   223→  busyKey,
+   224→  onCreatePromo,
+   225→  onTogglePromo,
+   226→  onGenerateCodes,
+   227→  onToggleCode,
+   228→}: {
+   229→  promos: PromoAdmin[] | null
+   230→  codes: TopupCodeAdmin[] | null
+   231→  busyKey: string | null
+   232→  onCreatePromo: (data: CreatePromoInput) => Promise<boolean>
+   233→  onTogglePromo: (code: string, next: boolean) => Promise<void>
+   234→  onGenerateCodes: (amount: number, count: number, note: string) => Promise<boolean>
+   235→  onToggleCode: (code: string, next: boolean) => Promise<void>
+   236→}) {
+   237→  const { toast } = useToast()
+   238→
+   239→  // ---------- حالة نموذج إنشاء كوبون ----------
+   240→  const [createOpen, setCreateOpen] = useState(false)
+   241→  const [pCode, setPCode] = useState('')
+   242→  const [pLabel, setPLabel] = useState('')
+   243→  const [pDesc, setPDesc] = useState('')
+   244→  const [pEmoji, setPEmoji] = useState('🎟️')
+   245→  const [pKind, setPKind] = useState<'percent' | 'flat'>('percent')
+   246→  const [pPercent, setPPercent] = useState('10')
+   247→  const [pFlat, setPFlat] = useState('5')
+   248→  const [pCap, setPCap] = useState('')
+   249→  const [pMin, setPMin] = useState('0')
+   250→
+   251→  const submitPromo = async () => {
+   252→    const ok = await onCreatePromo({
+   253→      code: pCode,
+   254→      label: pLabel,
+   255→      description: pDesc,
+   256→      emoji: pEmoji || '🎟️',
+   257→      kind: pKind,
+   258→      percent: pKind === 'percent' ? Number(pPercent) : undefined,
+   259→      flatLyd: pKind === 'flat' ? Number(pFlat) : undefined,
+   260→      maxDiscountLyd: pCap.trim() ? Number(pCap) : undefined,
+   261→      minSubtotalLyd: Number(pMin || '0'),
+   262→    })
+   263→    if (ok) {
+   264→      setCreateOpen(false)
+   265→      setPCode('')
+   266→      setPLabel('')
+   267→      setPDesc('')
+   268→      setPCap('')
+   269→      setPMin('0')
+   270→    }
+   271→  }
+   272→
+   273→  // ---------- حالة توليد أكواد شحن ----------
+   274→  const [giftOpen, setGiftOpen] = useState(false)
+   275→  const [gAmount, setGAmount] = useState('25')
+   276→  const [gCount, setGCount] = useState('5')
+   277→  const [gNote, setGNote] = useState('')
+   278→
+   279→  const submitGifts = async () => {
+   280→    const ok = await onGenerateCodes(Number(gAmount), Number(gCount), gNote)
+   281→    if (ok) setGiftOpen(false)
+   282→  }
+   283→
+   284→  const activePromos = promos?.filter((p) => p.isActive) ?? []
+   285→  const totalUsed = promos?.reduce((n, p) => n + p.usedCount, 0) ?? 0
+   286→  const totalDiscount = promos?.reduce((n, p) => n + p.totalDiscountLyd, 0) ?? 0
+   287→  const giftStats = (() => {
+   288→    const list = codes ?? []
+   289→    const used = list.filter((c) => c.usedByPhone).length
+   290→    const active = list.filter((c) => !c.usedByPhone && c.isActive).length
+   291→    const redeemed = list.filter((c) => c.usedByPhone).reduce((n, c) => n + c.amountLyd, 0)
+   292→    return { used, active, redeemed }
+   293→  })()
+   294→
+   295→  return (
+   296→    <div className="space-y-6">
+   297→      {/* ======= كوبونات الخصم ======= */}
+   298→      <section className="rounded-2xl border border-[rgba(212,175,55,0.2)] bg-[#062319] p-4">
+   299→        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+   300→          <div className="flex items-center gap-3">
+   301→            <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-[rgba(212,175,55,0.3)] bg-[#041710] text-xl">
+   302→              🎟️
+   303→            </span>
+   304→            <div>
+   305→              <h3 className="text-sm font-extrabold text-[#F8F5EE]">كوبونات الخصم</h3>
+   306→              <p className="text-[10px] text-[#938E7E]">
+   307→                الخصم تتحمله المنصة كاملاً — لا يمس حصة المتجر ولا أجرة الكابتن
+   308→              </p>
+   309→            </div>
+   310→          </div>
+   311→          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+   312→            <DialogTrigger asChild>
+   313→              <Button className="min-h-12 rounded-xl bg-gradient-to-l from-[#D4AF37] to-[#F5D061] px-4 text-xs font-extrabold text-[#041710] shadow-md shadow-[rgba(212,175,55,0.2)]">
+   314→                <Plus className="h-4 w-4" />
+   315→                كوبون جديد
+   316→              </Button>
+   317→            </DialogTrigger>
+   318→            <DialogContent className="border-[rgba(212,175,55,0.35)] bg-[#062319] sm:max-w-md">
+   319→              <DialogHeader>
+   320→                <DialogTitle className="gold-text text-base font-extrabold">🎟️ إنشاء كوبون خصم</DialogTitle>
+   321→                <DialogDescription className="text-[11px] text-[#938E7E]">
+   322→                  يظهر فوراً على الزبائن في الدفع وصفحة الهبوط — التحقق خادمي بالكامل
+   323→                </DialogDescription>
+   324→              </DialogHeader>
+   325→              <div className="space-y-3.5">
+   326→                <div className="grid grid-cols-2 gap-3">
+   327→                  <div className="space-y-1.5">
+   328→                    <Label className="text-[11px] font-bold text-[#938E7E]">الكود (إنجليزي)</Label>
+   329→                    <Input
+   330→                      dir="ltr"
+   331→                      value={pCode}
+   332→                      onChange={(e) => setPCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+   333→                      placeholder="RAMADAN20"
+   334→                      maxLength={16}
+   335→                      className="h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center font-money text-sm tracking-widest text-[#F8F5EE]"
+   336→                    />
+   337→                  </div>
+   338→                  <div className="space-y-1.5">
+   339→                    <Label className="text-[11px] font-bold text-[#938E7E]">الاسم العربي</Label>
+   340→                    <Input
+   341→                      value={pLabel}
+   342→                      onChange={(e) => setPLabel(e.target.value)}
+   343→                      placeholder="خصم رمضان"
+   344→                      maxLength={60}
+   345→                      className="h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-sm text-[#F8F5EE]"
+   346→                    />
+   347→                  </div>
+   348→                </div>
+   349→                <div className="space-y-1.5">
+   350→                  <Label className="text-[11px] font-bold text-[#938E7E]">الوصف للزبون</Label>
+   351→                  <Textarea
+   352→                    value={pDesc}
+   353→                    onChange={(e) => setPDesc(e.target.value)}
+   354→                    rows={2}
+   355→                    maxLength={140}
+   356→                    placeholder="20% على كل الطلبات حتى سقف 12 د.ل — طوال شهر رمضان"
+   357→                    className="resize-none rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-xs leading-relaxed text-[#F8F5EE]"
+   358→                  />
+   359→                </div>
+   360→                <div className="grid grid-cols-3 gap-3">
+   361→                  <div className="space-y-1.5">
+   362→                    <Label className="text-[11px] font-bold text-[#938E7E]">النوع</Label>
+   363→                    <Select value={pKind} onValueChange={(v) => setPKind(v === 'flat' ? 'flat' : 'percent')}>
+   364→                      <SelectTrigger className="h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-xs font-bold text-[#F8F5EE]">
+   365→                        <SelectValue />
+   366→                      </SelectTrigger>
+   367→                      <SelectContent className="border-[rgba(212,175,55,0.35)] bg-[#062319] text-[#F8F5EE]">
+   368→                        <SelectItem value="percent">نسبة %</SelectItem>
+   369→                        <SelectItem value="flat">مبلغ ثابت</SelectItem>
+   370→                      </SelectContent>
+   371→                    </Select>
+   372→                  </div>
+   373→                  {pKind === 'percent' ? (
+   374→                    <div className="space-y-1.5">
+   375→                      <Label className="text-[11px] font-bold text-[#938E7E]">النسبة %</Label>
+   376→                      <Input
+   377→                        dir="ltr"
+   378→                        type="number"
+   379→                        min={1}
+   380→                        max={90}
+   381→                        value={pPercent}
+   382→                        onChange={(e) => setPPercent(e.target.value)}
+   383→                        className="font-money h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center text-sm text-[#F8F5EE]"
+   384→                      />
+   385→                    </div>
+   386→                  ) : (
+   387→                    <div className="space-y-1.5">
+   388→                      <Label className="text-[11px] font-bold text-[#938E7E]">المبلغ (د.ل)</Label>
+   389→                      <Input
+   390→                        dir="ltr"
+   391→                        type="number"
+   392→                        min={0.5}
+   393→                        step={0.5}
+   394→                        value={pFlat}
+   395→                        onChange={(e) => setPFlat(e.target.value)}
+   396→                        className="font-money h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center text-sm text-[#F8F5EE]"
+   397→                      />
+   398→                    </div>
+   399→                  )}
+   400→                  <div className="space-y-1.5">
+   401→                    <Label className="text-[11px] font-bold text-[#938E7E]">السقف (اختياري)</Label>
+   402→                    <Input
+   403→                      dir="ltr"
+   404→                      type="number"
+   405→                      min={0.5}
+   406→                      step={0.5}
+   407→                      value={pCap}
+   408→                      onChange={(e) => setPCap(e.target.value)}
+   409→                      placeholder="—"
+   410→                      className="font-money h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center text-sm text-[#F8F5EE] placeholder:text-[#938E7E]/40"
+   411→                    />
+   412→                  </div>
+   413→                </div>
+   414→                <div className="grid grid-cols-2 gap-3">
+   415→                  <div className="space-y-1.5">
+   416→                    <Label className="text-[11px] font-bold text-[#938E7E]">حد أدنى للطلب (د.ل)</Label>
+   417→                    <Input
+   418→                      dir="ltr"
+   419→                      type="number"
+   420→                      min={0}
+   421→                      step={1}
+   422→                      value={pMin}
+   423→                      onChange={(e) => setPMin(e.target.value)}
+   424→                      className="font-money h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center text-sm text-[#F8F5EE]"
+   425→                    />
+   426→                  </div>
+   427→                  <div className="space-y-1.5">
+   428→                    <Label className="text-[11px] font-bold text-[#938E7E]">الإيموجي</Label>
+   429→                    <Input
+   430→                      value={pEmoji}
+   431→                      onChange={(e) => setPEmoji(e.target.value)}
+   432→                      maxLength={4}
+   433→                      className="h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center text-lg"
+   434→                    />
+   435→                  </div>
+   436→                </div>
+   437→                <Button
+   438→                  onClick={() => void submitPromo()}
+   439→                  disabled={busyKey === 'promo:create' || !pCode.trim() || !pLabel.trim()}
+   440→                  className="h-12 w-full rounded-xl bg-gradient-to-l from-[#D4AF37] to-[#F5D061] text-sm font-extrabold text-[#041710]"
+   441→                >
+   442→                  {busyKey === 'promo:create' ? <Loader2 className="h-4 w-4 animate-spin" /> : <TicketPercent className="h-4 w-4" />}
+   443→                  إنشاء الكوبون ونشره فوراً
+   444→                </Button>
+   445→              </div>
+   446→            </DialogContent>
+   447→          </Dialog>
+   448→        </div>
+   449→
+   450→        {/* إحصائيات سريعة */}
+   451→        <div className="mb-4 grid grid-cols-3 gap-2">
+   452→          <div className="rounded-xl bg-[rgba(212,175,55,0.08)] px-3 py-2.5 text-center">
+   453→            <p className="font-money ltr-nums text-xl font-bold text-[#F5D061]">{activePromos.length}</p>
+   454→            <p className="text-[10px] font-semibold text-[#938E7E]">كوبون نشط</p>
+   455→          </div>
+   456→          <div className="rounded-xl bg-[rgba(16,185,129,0.08)] px-3 py-2.5 text-center">
+   457→            <p className="font-money ltr-nums text-xl font-bold text-[#10B981]">{totalUsed}</p>
+   458→            <p className="text-[10px] font-semibold text-[#938E7E]">مرة استخدام</p>
+   459→          </div>
+   460→          <div className="rounded-xl bg-[rgba(16,185,129,0.08)] px-3 py-2.5 text-center">
+   461→            <Ly amount={totalDiscount} bold className="text-xl text-[#10B981]" />
+   462→            <p className="text-[10px] font-semibold text-[#938E7E]">وفّرتها المنصة للزبائن</p>
+   463→          </div>
+   464→        </div>
+   465→
+   466→        {!promos ? (
+   467→          <p className="py-8 text-center text-xs text-[#938E7E]">جارٍ تحميل الكوبونات…</p>
+   468→        ) : promos.length === 0 ? (
+   469→          <p className="py-8 text-center text-xs text-[#938E7E]">لا كوبونات بعد — أنشئ أول كوبون 🎟️</p>
+   470→        ) : (
+   471→          <div className="grid gap-3 lg:grid-cols-2">
+   472→            {promos.map((p) => (
+   473→              <PromoTicket
+   474→                key={p.code}
+   475→                promo={p}
+   476→                busy={busyKey === `promo:${p.code}`}
+   477→                onToggle={(next) => void onTogglePromo(p.code, next)}
+   478→              />
+   479→            ))}
+   480→          </div>
+   481→        )}
+   482→      </section>
+   483→
+   484→      {/* ======= أكواد شحن المحفظة ======= */}
+   485→      <section className="rounded-2xl border border-[rgba(212,175,55,0.2)] bg-[#062319] p-4">
+   486→        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+   487→          <div className="flex items-center gap-3">
+   488→            <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-[rgba(16,185,129,0.35)] bg-[#041710] text-xl">
+   489→              🎁
+   490→            </span>
+   491→            <div>
+   492→              <h3 className="text-sm font-extrabold text-[#F8F5EE]">أكواد شحن المحفظة</h3>
+   493→              <p className="text-[10px] text-[#938E7E]">
+   494→                بطاقات هدية مسبقة الدفع — تُشحن نقداً في المقر وتُباع للزبائن
+   495→              </p>
+   496→            </div>
+   497→          </div>
+   498→          <Dialog open={giftOpen} onOpenChange={setGiftOpen}>
+   499→            <DialogTrigger asChild>
+   500→              <Button className="min-h-12 rounded-xl border border-[rgba(16,185,129,0.45)] bg-[rgba(16,185,129,0.12)] px-4 text-xs font-extrabold text-[#10B981] hover:bg-[rgba(16,185,129,0.2)]">
+   501→                <Gift className="h-4 w-4" />
+   502→                توليد أكواد
+   503→              </Button>
+   504→            </DialogTrigger>
+   505→            <DialogContent className="border-[rgba(16,185,129,0.35)] bg-[#062319] sm:max-w-sm">
+   506→              <DialogHeader>
+   507→                <DialogTitle className="text-base font-extrabold text-[#10B981]">🎁 توليد أكواد شحن</DialogTitle>
+   508→                <DialogDescription className="text-[11px] text-[#938E7E]">
+   509→                  كود بفئة واحدة يُستخدم مرة واحدة — يشحن محفظة الزبون فور إدخاله
+   510→                </DialogDescription>
+   511→              </DialogHeader>
+   512→              <div className="space-y-3.5">
+   513→                <div className="grid grid-cols-2 gap-3">
+   514→                  <div className="space-y-1.5">
+   515→                    <Label className="text-[11px] font-bold text-[#938E7E]">قيمة الكود (د.ل)</Label>
+   516→                    <Input
+   517→                      dir="ltr"
+   518→                      type="number"
+   519→                      min={5}
+   520→                      max={500}
+   521→                      step={5}
+   522→                      value={gAmount}
+   523→                      onChange={(e) => setGAmount(e.target.value)}
+   524→                      className="font-money h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center text-sm text-[#F8F5EE]"
+   525→                    />
+   526→                  </div>
+   527→                  <div className="space-y-1.5">
+   528→                    <Label className="text-[11px] font-bold text-[#938E7E]">عدد الأكواد (1-20)</Label>
+   529→                    <Input
+   530→                      dir="ltr"
+   531→                      type="number"
+   532→                      min={1}
+   533→                      max={20}
+   534→                      value={gCount}
+   535→                      onChange={(e) => setGCount(e.target.value)}
+   536→                      className="font-money h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center text-sm text-[#F8F5EE]"
+   537→                    />
+   538→                  </div>
+   539→                </div>
+   540→                <div className="space-y-1.5">
+   541→                  <Label className="text-[11px] font-bold text-[#938E7E]">ملاحظة (اختياري)</Label>
+   542→                  <Input
+   543→                    value={gNote}
+   544→                    onChange={(e) => setGNote(e.target.value)}
+   545→                    maxLength={120}
+   546→                    placeholder="دفعة رمضان — وكالة الحوامد"
+   547→                    className="h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-xs text-[#F8F5EE]"
+   548→                  />
+   549→                </div>
+   550→                <Button
+   551→                  onClick={() => void submitGifts()}
+   552→                  disabled={busyKey === 'gift:create'}
+   553→                  className="h-12 w-full rounded-xl bg-gradient-to-l from-[#059669] to-[#10B981] text-sm font-extrabold text-[#041710]"
+   554→                >
+   555→                  {busyKey === 'gift:create' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gift className="h-4 w-4" />}
+   556→                  توليد الأكواد
+   557→                </Button>
+   558→              </div>
+   559→            </DialogContent>
+   560→          </Dialog>
+   561→        </div>
+   562→
+   563→        <div className="mb-4 grid grid-cols-3 gap-2">
+   564→          <div className="rounded-xl bg-[rgba(16,185,129,0.08)] px-3 py-2.5 text-center">
+   565→            <p className="font-money ltr-nums text-xl font-bold text-[#10B981]">{giftStats.active}</p>
+   566→            <p className="text-[10px] font-semibold text-[#938E7E]">كود جاهز للبيع</p>
+   567→          </div>
+   568→          <div className="rounded-xl bg-[rgba(212,175,55,0.08)] px-3 py-2.5 text-center">
+   569→            <p className="font-money ltr-nums text-xl font-bold text-[#F5D061]">{giftStats.used}</p>
+   570→            <p className="text-[10px] font-semibold text-[#938E7E]">كود مستهلك</p>
+   571→          </div>
+   572→          <div className="rounded-xl bg-[rgba(16,185,129,0.08)] px-3 py-2.5 text-center">
+   573→            <Ly amount={giftStats.redeemed} bold className="text-xl text-[#10B981]" />
+   574→            <p className="text-[10px] font-semibold text-[#938E7E]">أُعيدت للمحافظ</p>
+   575→          </div>
+   576→        </div>
+   577→
+   578→        {!codes ? (
+   579→          <p className="py-8 text-center text-xs text-[#938E7E]">جارٍ تحميل الأكواد…</p>
+   580→        ) : codes.length === 0 ? (
+   581→          <p className="py-8 text-center text-xs text-[#938E7E]">
+   582→            لا أكواد بعد — ولّد أول دفعة بطاقات هدية 🎁
+   583→          </p>
+   584→        ) : (
+   585→          <div className="wasel-scroll max-h-[52vh] space-y-2 overflow-y-auto pe-1">
+   586→            {codes.map((c) => (
+   587→              <TopupCodeRow
+   588→                key={c.id}
+   589→                code={c}
+   590→                busy={busyKey === `gift:${c.code}`}
+   591→                onToggle={(next) => void onToggleCode(c.code, next)}
+   592→              />
+   593→            ))}
+   594→          </div>
+   595→        )}
+   596→      </section>
+   597→    </div>
+   598→  )
+   599→}
+   600→

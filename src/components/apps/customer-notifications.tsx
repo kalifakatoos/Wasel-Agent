@@ -3,8 +3,9 @@
 // 🔔 صندوق إشعارات الزبون — واصل نالوت
 // جرس برقم غير المقروء + لوحة جانبية فاخرة، بث لحظي عبر غرفة customer:{phone}
 // + استقصاء احتياطي كل 12 ثانية مع منع تكرار صارم بمفتاح order:{id}:{status}
+// + تجميع الأقدم بعد 24 سا + إشعارات سطح المكتب (Notification API) في الخلفية
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Bell, BellRing, CheckCheck, Gift, PackageSearch, Trash2, Wallet2 } from 'lucide-react'
+import { Bell, BellRing, CheckCheck, Gift, MonitorSmartphone, PackageSearch, Trash2, Wallet2 } from 'lucide-react'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
@@ -56,6 +57,7 @@ function timeAgo(iso: string): string {
 
 export function CustomerNotifications({ onTrackOrder }: { onTrackOrder: (orderId: string) => void }) {
   const [open, setOpen] = useState(false)
+  const [devicePerm, setDevicePerm] = useState<string>('default')
   const { toast } = useToast()
   const customerPhone = useWasel((s) => s.customerPhone)
   const notifications = useWasel((s) => s.notifications)
@@ -65,6 +67,52 @@ export function CustomerNotifications({ onTrackOrder }: { onTrackOrder: (orderId
 
   const unread = notifications.filter((n) => !n.read).length
   const lastSnapshot = useRef<Map<string, string>>(new Map())
+
+  // حالة إذن إشعارات الجهاز عند التركيب
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setDevicePerm(Notification.permission)
+    }
+  }, [])
+
+  /// إشعار سطح المكتب — عند وصول إشعار والتطبيق بالخلفية
+  const showDesktopNotification = useCallback((n: { id: string; title: string; body: string }) => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return
+    if (Notification.permission !== 'granted' || !document.hidden) return
+    try {
+      const note = new Notification(n.title, {
+        body: n.body,
+        tag: n.id, // يمنع تكدس الإشعارات المكررة
+        dir: 'rtl',
+        lang: 'ar',
+        icon: '/logo.svg',
+        badge: '/logo.svg',
+      })
+      note.onclick = () => {
+        window.focus()
+        note.close()
+      }
+    } catch {
+      /* بعض المتصفحات تتطلب ServiceWorker — نتجاهل بصمت */
+    }
+  }, [])
+
+  const enableDeviceNotifications = () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      toast({ title: 'متصفحك لا يدعم إشعارات الجهاز' })
+      return
+    }
+    void Notification.requestPermission().then((p) => {
+      setDevicePerm(p)
+      if (p === 'granted') {
+        toast({
+          title: '🔔 فُعّلت إشعارات الجهاز',
+          description: 'ستصلك التنبيهات حتى وأنت تتصفح تبويباً آخر',
+          className: 'border-[rgba(16,185,129,0.5)] bg-[#0A3324] text-[#10B981]',
+        })
+      }
+    })
+  }
 
   /// إدخال إشعار موحد: يمنع التكرار ويطلق توست ذهبي عند الجديد
   const ingest = useCallback(
@@ -76,9 +124,10 @@ export function CustomerNotifications({ onTrackOrder }: { onTrackOrder: (orderId
           description: n.body,
           className: 'border-[rgba(212,175,55,0.5)] bg-[#0A3324] text-[#F5D061]',
         })
+        showDesktopNotification({ id: n.id, title: n.title, body: n.body })
       }
     },
-    [pushNotification, toast],
+    [pushNotification, toast, showDesktopNotification],
   )
 
   /// 1) البث اللحظي: غرفة customer:{phone} — أحداث من الخادم
@@ -165,6 +214,83 @@ export function CustomerNotifications({ onTrackOrder }: { onTrackOrder: (orderId
 
   const total = notifications.length
 
+  // 🕐 تجميع زمني: الحديثة (آخر 24 ساعة) ثم «الأقدم» بطاقات مدمجة خافتة
+  const DAY_MS = 24 * 60 * 60 * 1000
+  const nowMs = Date.now()
+  const recent = notifications.filter((n) => nowMs - new Date(n.at).getTime() < DAY_MS)
+  const older = notifications.filter((n) => nowMs - new Date(n.at).getTime() >= DAY_MS)
+
+  const renderCard = (n: WaselNotification, opts: { compact?: boolean; animate?: boolean }) => {
+    const v = kindVisual(n)
+    const compact = opts.compact === true
+    return (
+      <div
+        className={`relative overflow-hidden rounded-2xl border transition ${
+          compact
+            ? 'border-[rgba(212,175,55,0.1)] bg-[#041710]/50 opacity-70'
+            : n.read
+              ? 'border-[rgba(212,175,55,0.12)] bg-[#062319]/60'
+              : 'border-[rgba(212,175,55,0.45)] bg-gradient-to-br from-[#062319] to-[#0A3324] shadow-lg shadow-[rgba(212,175,55,0.08)]'
+        } ${opts.animate ? 'animate-in fade-in slide-in-from-top-1' : ''}`}
+      >
+        {/* ثقبة تذكرة جانبية */}
+        {!compact && (
+          <span className="absolute -left-2.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-[#041710]" aria-hidden="true" />
+        )}
+        <div className={`flex items-start gap-3 ${compact ? 'px-3 py-2.5' : 'p-4'}`}>
+          <span
+            className={`flex shrink-0 items-center justify-center rounded-xl border ${compact ? 'h-8 w-8 text-sm' : 'h-11 w-11 text-xl'} ${v.ring}`}
+            aria-hidden="true"
+          >
+            {v.icon}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <p className={`${compact ? 'text-[12px]' : 'text-[13px]'} font-extrabold leading-snug text-[#F8F5EE]`}>{n.title}</p>
+              {!n.read && !compact && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[#D4AF37]" aria-hidden="true" />}
+            </div>
+            <p className={`mt-1 ${compact ? 'line-clamp-1 text-[10px]' : 'text-[11px] leading-relaxed'} text-[#938E7E]`}>{n.body}</p>
+
+            {/* أكواد بطاقات الشحن */}
+            {n.codes && n.codes.length > 0 && (
+              <div className="mt-2 rounded-xl border border-dashed border-[rgba(212,175,55,0.4)] bg-[#041710] px-3 py-2">
+                <p className="mb-1 flex items-center gap-1 text-[10px] font-bold text-[#10B981]">
+                  <Gift className="h-3 w-3" /> أكواد بطاقات الشحن — انسخها واستخدمها من المحفظة
+                </p>
+                <ul className="space-y-1">
+                  {n.codes.map((c) => (
+                    <li key={c} dir="ltr" className="font-money text-center text-sm font-bold tracking-[0.18em] text-[#F5D061]">
+                      {c}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <span className="text-[10px] font-semibold text-[#938E7E]/70" title={fmtDate(n.at)}>
+                {timeAgo(n.at)}
+              </span>
+              {n.orderId && (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setOpen(false)
+                    onTrackOrder(n.orderId!)
+                  }}
+                  className="h-8 gap-1 rounded-lg bg-[#0A3324] px-2.5 text-[11px] font-bold text-[#F5D061] hover:bg-[#124532]"
+                >
+                  <PackageSearch className="h-3.5 w-3.5" />
+                  تتبع الطلب
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
@@ -229,80 +355,62 @@ export function CustomerNotifications({ onTrackOrder }: { onTrackOrder: (orderId
                 </p>
               </div>
             ) : (
-              <ul className="space-y-3">
-                {notifications.map((n, idx) => {
-                  const v = kindVisual(n)
-                  return (
+              <div className="space-y-3">
+                <ul className="space-y-3">
+                  {recent.map((n, idx) => (
                     <li key={n.id} className={idx === 0 && !n.read ? 'animate-in fade-in slide-in-from-top-1' : ''}>
-                      <div
-                        className={`relative overflow-hidden rounded-2xl border p-4 transition ${
-                          n.read
-                            ? 'border-[rgba(212,175,55,0.12)] bg-[#062319]/60'
-                            : 'border-[rgba(212,175,55,0.45)] bg-gradient-to-br from-[#062319] to-[#0A3324] shadow-lg shadow-[rgba(212,175,55,0.08)]'
-                        }`}
-                      >
-                        {/* ثقبة تذكرة جانبية */}
-                        <span className="absolute -left-2.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-[#041710]" aria-hidden="true" />
-                        <div className="flex items-start gap-3">
-                          <span
-                            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-xl ${v.ring}`}
-                            aria-hidden="true"
-                          >
-                            {v.icon}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-start justify-between gap-2">
-                              <p className="text-[13px] font-extrabold leading-snug text-[#F8F5EE]">{n.title}</p>
-                              {!n.read && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[#D4AF37]" aria-hidden="true" />}
-                            </div>
-                            <p className="mt-1 text-[11px] leading-relaxed text-[#938E7E]">{n.body}</p>
-
-                            {/* أكواد بطاقات الشحن */}
-                            {n.codes && n.codes.length > 0 && (
-                              <div className="mt-2 rounded-xl border border-dashed border-[rgba(212,175,55,0.4)] bg-[#041710] px-3 py-2">
-                                <p className="mb-1 flex items-center gap-1 text-[10px] font-bold text-[#10B981]">
-                                  <Gift className="h-3 w-3" /> أكواد بطاقات الشحن — انسخها واستخدمها من المحفظة
-                                </p>
-                                <ul className="space-y-1">
-                                  {n.codes.map((c) => (
-                                    <li key={c} dir="ltr" className="font-money text-center text-sm font-bold tracking-[0.18em] text-[#F5D061]">
-                                      {c}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-
-                            <div className="mt-2 flex items-center justify-between gap-2">
-                              <span className="text-[10px] font-semibold text-[#938E7E]/70" title={fmtDate(n.at)}>
-                                {timeAgo(n.at)}
-                              </span>
-                              {n.orderId && (
-                                <Button
-                                  size="sm"
-                                  onClick={() => {
-                                    setOpen(false)
-                                    onTrackOrder(n.orderId!)
-                                  }}
-                                  className="h-8 gap-1 rounded-lg bg-[#0A3324] px-2.5 text-[11px] font-bold text-[#F5D061] hover:bg-[#124532]"
-                                >
-                                  <PackageSearch className="h-3.5 w-3.5" />
-                                  تتبع الطلب
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                      {renderCard(n, { animate: idx === 0 && !n.read })}
                     </li>
-                  )
-                })}
-              </ul>
+                  ))}
+                </ul>
+
+                {/* 🕐 الأقدم — تجميع مدمج خافت */}
+                {older.length > 0 && (
+                  <>
+                    <div className="flex items-center gap-3 py-1" role="separator" aria-label="الإشعارات الأقدم">
+                      <span className="h-px flex-1 bg-gradient-to-l from-transparent to-[rgba(212,175,55,0.35)]" />
+                      <span className="flex items-center gap-1.5 rounded-full border border-[rgba(212,175,55,0.25)] bg-[#062319]/70 px-3 py-1 text-[10px] font-bold text-[#938E7E]">
+                        🕐 الأقدم — قبل أكثر من 24 ساعة
+                      </span>
+                      <span className="h-px flex-1 bg-gradient-to-r from-transparent to-[rgba(212,175,55,0.35)]" />
+                    </div>
+                    <ul className="space-y-2">
+                      {older.map((n) => (
+                        <li key={n.id}>{renderCard(n, { compact: true })}</li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
             )}
           </div>
 
           {/* تذييل اللوحة */}
           <div className="border-t border-[rgba(212,175,55,0.15)] bg-[#062319]/70 px-5 py-3">
+            {/* 🔔 إشعارات الجهاز — تصل حتى بالخلفية */}
+            {'Notification' in (typeof window !== 'undefined' ? window : {}) && devicePerm !== 'denied' && (
+              <button
+                onClick={enableDeviceNotifications}
+                disabled={devicePerm === 'granted'}
+                className={`mb-2.5 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border px-3 text-[11px] font-bold transition ${
+                  devicePerm === 'granted'
+                    ? 'cursor-default border-[rgba(16,185,129,0.4)] bg-[rgba(16,185,129,0.08)] text-[#10B981]'
+                    : 'border-[rgba(212,175,55,0.4)] bg-[#041710] text-[#F5D061] hover:bg-[rgba(212,175,55,0.1)]'
+                }`}
+              >
+                {devicePerm === 'granted' ? (
+                  <>
+                    <MonitorSmartphone className="h-4 w-4" />
+                    إشعارات الجهاز مفعلة — ستصلك حتى بالخلفية ✓
+                  </>
+                ) : (
+                  <>
+                    <MonitorSmartphone className="h-4 w-4" />
+                    فعّل إشعارات الجهاز لتصلك التنبيهات في الخلفية
+                  </>
+                )}
+              </button>
+            )}
             <p className="flex items-center justify-center gap-1.5 text-center text-[10px] font-semibold text-[#938E7E]">
               <CheckCheck className="h-3.5 w-3.5 text-[#10B981]" />
               الإشعارات محفوظة على جهازك — تنطلق مع كل تغيير حالة لحظياً

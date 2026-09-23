@@ -73,50 +73,66 @@ export function CartScreen({
 
       {/* عناصر السلة */}
       <div className="space-y-2.5">
-        {cart.map((item) => (
-          <div
-            key={item.productId}
-            className="flex items-center gap-3 rounded-2xl border border-[rgba(212,175,55,0.18)] bg-[#062319] p-3.5"
-          >
-            <div className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-xl border border-[rgba(212,175,55,0.25)] bg-[#041710] text-2xl">
-              {item.emoji}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-extrabold text-[#F8F5EE]">{item.title}</p>
-              {item.notes && (
-                <p className="mt-0.5 line-clamp-1 text-[10px] text-[#938E7E]">📝 {item.notes}</p>
-              )}
-              <Ly amount={item.unitPrice} className="mt-0.5 text-xs text-[#D4AF37]" />
-            </div>
-            {/* عداد الكمية */}
-            <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[rgba(212,175,55,0.25)] bg-[#0A3324] p-1">
-              <button
-                onClick={() => updateQty(item.productId, item.qty - 1)}
-                aria-label={`إنقاص ${item.title}`}
-                className="flex h-11 w-11 items-center justify-center rounded-lg text-[#F5D061] transition hover:bg-[rgba(212,175,55,0.12)]"
-              >
-                <Minus className="h-4 w-4" />
-              </button>
-              <span className="font-money ltr-nums w-7 text-center text-lg font-bold text-[#F8F5EE]">
-                {item.qty}
-              </span>
-              <button
-                onClick={() => updateQty(item.productId, item.qty + 1)}
-                aria-label={`زيادة ${item.title}`}
-                className="flex h-11 w-11 items-center justify-center rounded-lg bg-[rgba(212,175,55,0.15)] text-[#F5D061] transition hover:bg-[rgba(212,175,55,0.28)]"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
-            </div>
-            <button
-              onClick={() => updateQty(item.productId, 0)}
-              aria-label={`حذف ${item.title}`}
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-[#EF4444]/80 transition hover:bg-[rgba(239,68,68,0.1)] hover:text-[#EF4444]"
+        {cart.map((item) => {
+          const isGiftCard = item.productId.startsWith('giftcard-')
+          return (
+            <div
+              key={item.productId}
+              className={`relative flex items-center gap-3 rounded-2xl border p-3.5 ${
+                isGiftCard
+                  ? 'border-dashed border-[rgba(212,175,55,0.6)] bg-gradient-to-l from-[rgba(212,175,55,0.09)] to-[#062319]'
+                  : 'border-[rgba(212,175,55,0.18)] bg-[#062319]'
+              }`}
             >
-              <Trash2 className="h-[18px] w-[18px]" />
-            </button>
-          </div>
-        ))}
+              {isGiftCard && (
+                <span className="absolute -top-2.5 right-4 rounded-full bg-gradient-to-l from-[#D4AF37] to-[#F5D061] px-2 py-0.5 text-[9px] font-black text-[#041710] shadow-md shadow-[rgba(212,175,55,0.3)]">
+                  💳 بطاقة شحن
+                </span>
+              )}
+              <div className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-xl border border-[rgba(212,175,55,0.25)] bg-[#041710] text-2xl">
+                {item.emoji}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-extrabold text-[#F8F5EE]">{item.title}</p>
+                {isGiftCard ? (
+                  <p className="mt-0.5 text-[10px] font-bold text-[#10B981]">
+                    🔐 الكود يُصدر آلياً عند التسليم
+                  </p>
+                ) : item.notes ? (
+                  <p className="mt-0.5 line-clamp-1 text-[10px] text-[#938E7E]">📝 {item.notes}</p>
+                ) : null}
+                <Ly amount={item.unitPrice} className="mt-0.5 text-xs text-[#D4AF37]" />
+              </div>
+              {/* عداد الكمية */}
+              <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[rgba(212,175,55,0.25)] bg-[#0A3324] p-1">
+                <button
+                  onClick={() => updateQty(item.productId, item.qty - 1)}
+                  aria-label={`إنقاص ${item.title}`}
+                  className="flex h-11 w-11 items-center justify-center rounded-lg text-[#F5D061] transition hover:bg-[rgba(212,175,55,0.12)]"
+                >
+                  <Minus className="h-4 w-4" />
+                </button>
+                <span className="font-money ltr-nums w-7 text-center text-lg font-bold text-[#F8F5EE]">
+                  {item.qty}
+                </span>
+                <button
+                  onClick={() => updateQty(item.productId, item.qty + 1)}
+                  aria-label={`زيادة ${item.title}`}
+                  className="flex h-11 w-11 items-center justify-center rounded-lg bg-[rgba(212,175,55,0.15)] text-[#F5D061] transition hover:bg-[rgba(212,175,55,0.28)]"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
+              <button
+                onClick={() => updateQty(item.productId, 0)}
+                aria-label={`حذف ${item.title}`}
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-[#EF4444]/80 transition hover:bg-[rgba(239,68,68,0.1)] hover:text-[#EF4444]"
+              >
+                <Trash2 className="h-[18px] w-[18px]" />
+              </button>
+            </div>
+          )
+        })}
       </div>
 
       {/* الملخص */}

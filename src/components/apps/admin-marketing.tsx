@@ -44,6 +44,7 @@ export interface CreatePromoInput {
   flatLyd?: number
   maxDiscountLyd?: number
   minSubtotalLyd: number
+  maxUses?: number
 }
 
 function promoValueLabel(p: PromoAdmin): string {
@@ -126,7 +127,23 @@ function PromoTicket({
         </div>
         <div className="rounded-xl bg-[rgba(16,185,129,0.08)] px-2 py-2">
           <p className="text-[10px] font-semibold text-[#938E7E]">مرات الاستخدام</p>
-          <p className="font-money ltr-nums mt-0.5 text-[11px] font-extrabold text-[#10B981]">{promo.usedCount}</p>
+          <p className="font-money ltr-nums mt-0.5 text-[11px] font-extrabold text-[#10B981]">
+            {promo.maxUses != null ? `${promo.usedCount} / ${promo.maxUses}` : promo.usedCount}
+          </p>
+          {promo.maxUses != null && (
+            <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-[rgba(212,175,55,0.15)]">
+              <div
+                className={`h-full rounded-full ${
+                  promo.usedCount >= promo.maxUses
+                    ? 'bg-[#EF4444]'
+                    : promo.usedCount / promo.maxUses >= 0.75
+                      ? 'bg-[#F59E0B]'
+                      : 'bg-[#10B981]'
+                }`}
+                style={{ width: `${Math.min(100, (promo.usedCount / promo.maxUses) * 100)}%` }}
+              />
+            </div>
+          )}
         </div>
         <div className="rounded-xl bg-[rgba(16,185,129,0.08)] px-2 py-2">
           <p className="text-[10px] font-semibold text-[#938E7E]">إجمالي ما وُفّر</p>
@@ -247,6 +264,7 @@ export default function MarketingTab({
   const [pFlat, setPFlat] = useState('5')
   const [pCap, setPCap] = useState('')
   const [pMin, setPMin] = useState('0')
+  const [pMaxUses, setPMaxUses] = useState('')
 
   const submitPromo = async () => {
     const ok = await onCreatePromo({
@@ -259,6 +277,7 @@ export default function MarketingTab({
       flatLyd: pKind === 'flat' ? Number(pFlat) : undefined,
       maxDiscountLyd: pCap.trim() ? Number(pCap) : undefined,
       minSubtotalLyd: Number(pMin || '0'),
+      maxUses: pMaxUses.trim() ? Number(pMaxUses) : undefined,
     })
     if (ok) {
       setCreateOpen(false)
@@ -266,6 +285,7 @@ export default function MarketingTab({
       setPLabel('')
       setPDesc('')
       setPCap('')
+      setPMaxUses('')
       setPMin('0')
     }
   }
@@ -433,6 +453,26 @@ export default function MarketingTab({
                       className="h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center text-lg"
                     />
                   </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-bold text-[#938E7E]">
+                    حصة الاستخدام (اختياري) — <span className="text-[#F59E0B]">تنفد عند الاستنفاد</span>
+                  </Label>
+                  <Input
+                    dir="ltr"
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={pMaxUses}
+                    onChange={(e) => setPMaxUses(e.target.value)}
+                    placeholder="مثال: 100 — اتركه فارغاً لغير محدود"
+                    className="font-money h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center text-sm text-[#F8F5EE] placeholder:text-[#938E7E]/40"
+                  />
+                  {pMaxUses.trim() && Number(pMaxUses) > 0 && (
+                    <p className="text-[10px] font-bold text-[#F59E0B]">
+                      🔥 سيظهر للزبائن شارة «متبقٍ {pMaxUses} استخدامات» وتنطفئ تلقائياً عند النفاد
+                    </p>
+                  )}
                 </div>
                 <Button
                   onClick={() => void submitPromo()}
