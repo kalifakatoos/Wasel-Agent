@@ -235,3 +235,51 @@ Stage Summary:
 - بيانات تجريبية جديدة: كوبون RAMADAN20 نشط (2 استخدامات/24.00 وُفّرت)، 3 أكواد هدية (2 نشط + 1 مستهلك لـ 0940000111 برصيد 50)، محفظة 0940000111.
 - ملاحظة معمارية: جميع الوصول للجدولين الجديدين عبر SQL خام — بعد أي إعادة تشغيل كاملة للحاوية يمكن تحويله typed طبيعي إن رغبتم.
 - توصيات الجولة القادمة: (1) تحليلات الكوبونات في تقرير Z (خصومات اليوم ضمن المحضر). (2) إشعار زبون عند اقتراب انتهاء حملة كوبون (عدد استخدامات محدود). (3) بيع أكواد الشحن كمنتج في واصل متاع (متجر marketplace يبيع الأكواد). (4) قائمة إشعارات الزبون داخل التطبيق (order:status_changed تُجمع في صندوق وارد). (5) فحص Lighthouse للـ PWA.
+
+---
+Task ID: CRON-R5 (جولة المراجعة الدورية الخامسة — قيد التنفيذ)
+Agent: Z.ai (webDevReview cron)
+Task: تقييم الحالة، QA بالمتصفح، ثم 3 ميزات جديدة: صندوق إشعارات الزبون اللحظي، بطاقات الشحن كمنتجات في واصل متاع (إصدار أكواد عند التسليم)، تحليلات الكوبونات في محضر Z.
+
+Work Log (حتى الآن):
+- الحالة عند البدء: الخدمتان سليمتان (3000 + 3003/3013)، lint وtsc نظيفان، QA استكشافي (هبوط/زبون/متجر/PIN) بلا أخطاء — استمرار تطوير ميزات.
+- 🔔 ميزة 1 — صندوق إشعارات الزبون (توصية CRON-R4 #4):
+  • src/lib/wasel/notifications-server.ts (جديد): notifyCustomer تبث لغرفة customer:{phone} عبر customer:notify + orderNotifyText نصوص عربية موحدة لكل حالة + issueGiftCardsForOrder + ensureGiftCardProducts.
+  • types.ts: WaselNotification {id dedup, kind order|wallet|gift, title, body, orderId, codes…}.
+  • store.ts: notifications[] محفوظة بـ persist (40 كحد أقصى) + pushNotification بمنع تكرار صارم بالمفتاح + markNotificationsRead + clearNotifications.
+  • customer-notifications.tsx (جديد): جرس 48px بشارة غير المقروء (حتى ٩+) + Sheet جانبية فاخرة ببطاقات تذاكر مثقوبة، أيقونة لكل نوع، «قبل X د»، زر تتبع الطلب، عرض أكواد بطاقات الشحن داخل الصندوق، مسح الكل، حالة فراغ أنيقة.
+  • CustomerApp: الجرس في الرأس بجانب السلة؛ الاشتراك بغرفة customer:{phone} عند توفر الهوية + استقصاء احتياطي 12 ثانية بفرق الحالة (يلتقط ما فاته البث) + توست ذهبي لكل إشعار جديد.
+  • خطافات الخادم: checkout (placed) → status accept/ready/reject (preparing/ready_for_pickup/cancelled) → accept-offer (تعيين كابتن باسمه ولوحته) → handover (out_for_delivery) → deliver (delivered) → wallet/redeem (شحن المحفظة). كلها بنفس مفتاح order:{id}:{status} فلا تكرار بين البث والاستقصاء.
+- 🎁 ميزة 2 — بطاقات الشحن كمنتجات في واصل متاع (توصية CRON-R4 #3):
+  • منتجات giftcard-25/50/100 في متع mataa-electronics (زرع تلقائي idempotent عبر ensureGiftCardProducts عند كل checkout + إضافتها لـ seed-data.ts لقواعد جديدة).
+  • عند التسليم: issueGiftCardsForOrder تولّد TopupCode فعلياً لكل وحدة (نفس مولّد WASL-XXXX-XXXX مع معالجة تصادم) + قيد مزدوج gift_card_issued + بث store:giftcard_sold للإدارة + إشعار الزبون بالأكواد مباشرة في الصندوق.
+- 🎟️ ميزة 3 — تحليلات الكوبونات في لوحة المؤشرات (توصية CRON-R4 #1):
+  • summary API: promoDiscountLyd (إجمالي خصومات اليوم) + promoOrders + promoBreakdown (GROUP BY promoCode عبر SQL خام).
+  • AccountingSummary موسع + بطاقة «كوبونات اليوم (تحمّلتها المنصة)» في داشبورد الإدارة مع تفصيل أكواد (استخدامات × وفر) ونصيحة تشغيلية.
+- 🌟 ستايل: شبكة كوبونات الهبوط sm:grid-cols-2 lg:grid-cols-4 (لا بطاقة يتيمة)، الجرس بتصميم مطابق للسلة.
+- إصلاح lint: إزالة تحديث ref أثناء render (react-hooks/refs) في customer-notifications.
+- tsc نظيف، ESLint نظيف. QA الوظائف الجديدة API/متصفحاً: قيد الإنجاز في هذا الدور.
+
+Work Log (الاكتمال والتحقق):
+- 🐛 إصلاح مكتشف بالاختبار: استعلام promoBreakdown الخام كان يقارن التاريخ بـ ISO نصي بينما Prisma يخزن SQLite DateTime كـ epoch millis — استبدل بـ todayStart.getTime() وظهر التفصيل فوراً (RAMADAN20 2×24.00 / NAALUT5 3×15.00 / JEBEL15 1×13.50 / WASEL10 2×13.10).
+- 🐛 إصلاح: بطاقات الشحن لم تكن تظهر في منيو متجر واصل متاع (الزرع كان عند checkout فقط) — أضفت ensureGiftCardProducts لمسار /api/stores/{id}/menu (idempotent) وظهرت فوراً.
+- 🐛 إصلاح lint: إزالة تحديث ref أثناء render في customer-notifications (react-hooks/refs).
+- توصيل حدث store:giftcard_sold لغرفة المتجر أيضاً وأضفت معالجه في سجل نشاط KDS (🎁 بيع بطاقات شحن...) وفي سجل غرفة الإدارة (💳 صُدرت بطاقات... التزام على المنصة).
+- تحسين شبكة داشبورد الإدارة: بطاقتا نجاح التوزيع وكوبونات اليوم تمتد col-span-2 md:3 xl:2 — صف أخير متوازن تماماً بلا فراغات.
+- شبكة كوبونات الهبوط أصبحت sm:grid-cols-2 lg:grid-cols-4 — 4 كوبونات في صف واحد متوازن (تحقق بصري).
+
+QA الحية الشاملة (كلها عبر البوابة :81):
+- تدفق بطاقة الشحن كاملاً من الواجهة: متجر واصل متاع → بطاقة 25 د.ل في السلة → checkout (سالم أغوجة 0917778889 كاش، أجرة 8.75) → تتبع WSL-260923-0017 → (accept/assign/ready/handover/deliver عبر API) → الجرس ظهر 6 غير مقروء + توست «اكتمل التوصيل» حي → صندوق الإشعارات ببطاقات التذاكر عرض كود WASL-36AY-T689 داخل إطار منقّط → شاشة المحفظة استرداد الكود → الرصيد 75 → 100.00 د.ل + توست «شُحنت محفظتك» + إشعار wallet في الصندوق.
+- تدفق API مستقل سابق: طلب بطاقتين (25+50) 0917778889 → 7 إشعارات لحظية متسلسلة وصلت كلها عبر غرفة customer:0917778889 (placed/preparing/assigned/ready/out/gift/delivered) — موثقة في /tmp/wasel-qa/notify.log.
+- القيد المزدوج لطلب البطاقات سليم: custody_collect 83.75 = الإجمالي، store_payout 67.5 = 90%×75، platform_commission 7.5 = 10%×75، settlement 8.75 = كامل الأجرة، gift_card_issued 75.0 (التزام escrow→customer).
+- حماية التكرار: re-deliver يرفض 409 والأكواد بقيت 2 فقط؛ مفاتيح الإشعار order:{id}:{status} تمنع التكرار بين البث والاستقصاء.
+- summary API: promoDiscountLyd 65.6 | promoOrders 8 | breakdown 4 أكواد — وبطاقة «كوبونات اليوم» ظهرت في داشبورد الإدارة بالتفصيل والنصيحة.
+- الاسترداد بث إشعار wallet لحظياً (تحقق بمستمع socket ثانٍ: «شُحنت محفظتك بنجاح... رصيدك الآن 75.00»).
+- موبايل 390×844: لوحة الإشعارات بعرض كامل، بطاقات مقروءة، طوابع وقت «قبل X د»، أزرار تتبع 44px+.
+
+Stage Summary:
+- 3 ميزات جديدة مكتملة ومدققة: (1) صندوق إشعارات الزبون اللحظي (بث + استقصاء احتياطي + منع تكرار + persist). (2) بطاقات الشحن كمنتجات في واصل متاع بإصدار أكواد عند التسليم وإشعار مباشر بالأكواد. (3) تحليلات كوبونات اليوم في محضر Z/الداشبورد.
+- ملفات جديدة: src/lib/wasel/notifications-server.ts + src/components/apps/customer-notifications.tsx. ملفات معدلة: types/store (إشعارات + حقول تحليلات)، CustomerApp (الجرس)، 5 مسارات API (checkout/status/accept-offer/handover/deliver) + wallet/redeem + menu + summary + seed-data + MerchantApp/AdminApp (أحداث الهدايا) + admin-dashboard (بطاقة الكوبونات) + page.tsx (شبكة الكوبونات).
+- lint وtsc نظيفان، لا أخطاء في dev.log، 10 لقطات موثقة في download/ (qa5-*).
+- بيانات تجريبية جديدة: طلبان ببطاقات شحن (0016 API / 0017 واجهة)، أكواد صادرة (واحد مستهلك 0917778889 رصيده 100)، DRV-02 متصل.
+- توصيات الجولة القادمة: (1) شارة «بطاقة شحن» في عناصر السلة/الفاتورة مع أيقونة مميزة وسطر «الكود يُصدر عند التسليم». (2) تجميع الإشعارات القديمة تحت «الأقدم» بعد 24 سا. (3) عداد استخدام الكوبونات المتبقي (maxUses) مع تحذير الزبون عند اقتراب النفاد. (4) إشعار سطح المكتب (Notification API) للزبون عند وصول إشعار والتطبيق بالخلفية. (5) تصدير تقرير Z اليومي PDF من لوحة الإدارة.

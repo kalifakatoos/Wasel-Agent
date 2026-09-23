@@ -415,6 +415,15 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
       )
     }
 
+    const onGiftCardSold = (d: { orderNumber?: string; codesCount?: number; totalValueLyd?: number }) => {
+      if (!d?.orderNumber) return
+      pushEvent(
+        'topup',
+        `💳 صُدرت ${d.codesCount ?? 0} بطاقة شحن من واصل متاع — طلب ${d.orderNumber}`,
+        `قيمة إجمالية ${(d.totalValueLyd ?? 0).toFixed(2)} د.ل — التزام على المنصة حتى استخدام الأكواد`,
+      )
+    }
+
     if (s.connected) onConnect()
     s.on('connect', onConnect)
     s.on('disconnect', onDisconnect)
@@ -427,6 +436,7 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
     s.on('store:payout_settled', onStorePayout)
     s.on('store:promo_applied', onPromoApplied)
     s.on('wallet:topup_redeemed', onTopupRedeemed)
+    s.on('store:giftcard_sold', onGiftCardSold)
 
     return () => {
       s.off('connect', onConnect)
@@ -440,6 +450,7 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
       s.off('store:payout_settled', onStorePayout)
       s.off('store:promo_applied', onPromoApplied)
       s.off('wallet:topup_redeemed', onTopupRedeemed)
+      s.off('store:giftcard_sold', onGiftCardSold)
       leaveRooms(['admin:fleet'])
     }
   }, [unlocked, pin, loadAll, pushEvent])

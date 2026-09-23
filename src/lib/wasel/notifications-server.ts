@@ -117,6 +117,7 @@ export function orderNotifyText(status: string, order: { orderNumber: string; st
 export async function issueGiftCardsForOrder(order: {
   id: string
   orderNumber: string
+  storeId: string
   customerPhone: string
   customerName: string
   itemsJson: string
@@ -188,7 +189,7 @@ export async function issueGiftCardsForOrder(order: {
       codes: issued,
       amountLyd: money(totalValue),
     })
-    await emitRealtime(['admin:fleet'], 'store:giftcard_sold', {
+    await emitRealtime([`store:${order.storeId}`, 'admin:fleet'], 'store:giftcard_sold', {
       orderId: order.id,
       orderNumber: order.orderNumber,
       customerPhone: order.customerPhone.slice(0, 4) + '****',

@@ -475,6 +475,14 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
         duration: 6000,
       })
     }
+    const onGiftCardSold = (p: { orderNumber: string; codesCount: number; totalValueLyd: number }) => {
+      pushActivity('🎁', `بعتوا ${p.codesCount} بطاقة شحن واصل بقيمة ${p.totalValueLyd.toFixed(2)} د.ل — طلب ${p.orderNumber}`)
+      toast({
+        title: '🎁 بيع بطاقات شحن واصل',
+        description: `${p.codesCount} بطاقة بقيمة ${p.totalValueLyd.toFixed(2)} د.ل — الأكواد أُصدرت للزبون فور التسليم`,
+        duration: 7000,
+      })
+    }
     const onStoreStatus = (p: { storeId: string; isOpen: boolean; storeName: string }) => {
       if (p.storeId !== storeIdRef.current) return
       setStores((prev) => prev.map((s) => (s.id === p.storeId ? { ...s, isOpen: p.isOpen } : s)))
@@ -495,6 +503,7 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
     socket.on('store:product_availability', onProductAvail)
     socket.on('store:payout_settled', onPayout)
     socket.on('store:promo_applied', onPromoApplied)
+    socket.on('store:giftcard_sold', onGiftCardSold)
     socket.on('store:status_changed', onStoreStatus)
     if (socket.connected) {
       setConnected(true)
@@ -510,6 +519,7 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
       socket.off('store:product_availability', onProductAvail)
       socket.off('store:payout_settled', onPayout)
       socket.off('store:promo_applied', onPromoApplied)
+      socket.off('store:giftcard_sold', onGiftCardSold)
       socket.off('store:status_changed', onStoreStatus)
       leaveRooms([`store:${storeId}`])
     }

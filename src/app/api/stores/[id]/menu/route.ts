@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { ensureGiftCardProducts } from '@/lib/wasel/notifications-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,6 +10,8 @@ export async function GET(
 ) {
   try {
     const { id } = await params
+    // 🎁 بطاقات الشحن تُزرع تلقائياً في متجر واصل متاع (idempotent، مرة واحدة لكل عملية)
+    await ensureGiftCardProducts()
     const store = await db.store.findUnique({
       where: { id },
       include: {

@@ -48,13 +48,14 @@ export async function GET(req: NextRequest) {
     const promoOrders = todayOrders.filter((o) => o.discountLyd > 0).length
     let promoBreakdown: { code: string; uses: number; discountLyd: number }[] = []
     try {
+      // Prisma يخزن التواريخ في SQLite كأرقام epoch millis — نقارن بها مباشرة
       promoBreakdown = (
         await db.$queryRawUnsafe<{ code: string; uses: number; discountLyd: number }[]>(
           `SELECT "promoCode" AS code, COUNT(*) AS uses, ROUND(SUM("discountLyd"), 2) AS discountLyd
            FROM "Order"
            WHERE "createdAt" >= ? AND "discountLyd" > 0 AND "promoCode" IS NOT NULL
            GROUP BY "promoCode" ORDER BY discountLyd DESC`,
-          todayStart.toISOString(),
+          todayStart.getTime(),
         )
       ).map((r) => ({ code: String(r.code), uses: Number(r.uses), discountLyd: Number(r.discountLyd) }))
     } catch {

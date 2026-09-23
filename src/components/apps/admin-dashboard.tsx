@@ -111,7 +111,7 @@ export default function DashboardTab({
           const good = pct >= 80
           return (
             <div
-              className={`relative overflow-hidden rounded-2xl border p-4 transition ${
+              className={`relative overflow-hidden rounded-2xl border p-4 transition col-span-2 md:col-span-3 xl:col-span-2 ${
                 good
                   ? 'border-[rgba(16,185,129,0.35)] bg-[rgba(16,185,129,0.07)]'
                   : 'border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.07)]'
@@ -158,7 +158,7 @@ export default function DashboardTab({
           const breakdown = (s?.promoBreakdown ?? []).slice(0, 3)
           const avg = orders > 0 ? Math.round((discount / orders) * 100) / 100 : 0
           return (
-            <div className="relative overflow-hidden rounded-2xl border border-[rgba(212,175,55,0.35)] bg-[rgba(212,175,55,0.06)] p-4">
+            <div className="relative overflow-hidden rounded-2xl border border-[rgba(212,175,55,0.35)] bg-[rgba(212,175,55,0.06)] p-4 col-span-2 md:col-span-3 xl:col-span-2">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-2.5">
                   <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#041710]">

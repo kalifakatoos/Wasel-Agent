@@ -48,6 +48,7 @@ export async function POST(
     await issueGiftCardsForOrder({
       id: order.id,
       orderNumber: order.orderNumber,
+      storeId: order.storeId,
       customerPhone: order.customerPhone,
       customerName: order.customerName,
       itemsJson: order.itemsJson,
