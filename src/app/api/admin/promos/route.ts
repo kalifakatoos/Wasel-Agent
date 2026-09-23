@@ -109,8 +109,28 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json()
     const pinError = assertAdminPin(req, body.pin)
     if (pinError) return NextResponse.json({ error: pinError }, { status: 401 })
-    const { code, isActive } = body as { code?: string; isActive?: boolean }
+    const { code, isActive, addUses } = body as { code?: string; isActive?: boolean; addUses?: number }
     const cleanCode = (code || '').trim().toUpperCase()
+
+    // ⚡ تجديد سريع للحصة (زر «جدّد الحصة» عند نفاده) — زيادة ذرّية على maxUses
+    if (addUses != null) {
+      const inc = Math.floor(Number(addUses))
+      if (!cleanCode || !Number.isFinite(inc) || inc <= 0 || inc > 500) {
+        return NextResponse.json({ error: 'الزيادة مطلوبة (1-500 استخدام)' }, { status: 400 })
+      }
+      const res = await db.$executeRawUnsafe(
+        `UPDATE "PromoCode" SET "maxUses" = COALESCE("maxUses", 0) + ? , "isActive" = 1 WHERE UPPER("code") = UPPER(?)`,
+        inc,
+        cleanCode,
+      )
+      if (!res) return NextResponse.json({ error: 'الكوبون غير موجود' }, { status: 404 })
+      const rows = await db.$queryRawUnsafe<PromoRow[]>(
+        `SELECT * FROM "PromoCode" WHERE UPPER("code") = UPPER(?) LIMIT 1`,
+        cleanCode,
+      )
+      return NextResponse.json({ ok: true, code: cleanCode, addedUses: inc, promo: rows?.[0] ?? null })
+    }
+
     if (!cleanCode || typeof isActive !== 'boolean') {
       return NextResponse.json({ error: 'كود الكوبون والحالة الجديدة مطلوبان' }, { status: 400 })
     }

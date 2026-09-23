@@ -68,6 +68,27 @@ export async function GET(req: NextRequest) {
     // 📉 الفرص الضائعة: محاولات كوبونات مرفوضة اليوم (نفدت الحصة/معطل/تحت الحد)
     const promoRejects = await getPromoRejectStats(todayStart.getTime())
 
+    // 📈 اتجاه GMV آخر 7 أيام (لسباركلاين الداشبورد) — نجمع طلبات الأيام السبعة الماضية محلياً
+    const weekStart = new Date(todayStart)
+    weekStart.setDate(weekStart.getDate() - 6)
+    const weekOrders = await db.order.findMany({
+      where: { status: 'delivered', createdAt: { gte: weekStart } },
+      select: { totalLyd: true, createdAt: true },
+    })
+    const DAY_MS = 86_400_000
+    const DAY_LABELS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
+    const weeklyTrend = Array.from({ length: 7 }, (_, i) => {
+      const dayStart = new Date(weekStart.getTime() + i * DAY_MS)
+      const dayEnd = new Date(dayStart.getTime() + DAY_MS)
+      const dayOrders = weekOrders.filter((o) => o.createdAt >= dayStart && o.createdAt < dayEnd)
+      return {
+        date: dayStart.toISOString(),
+        label: DAY_LABELS[dayStart.getDay()],
+        gmvLyd: money(dayOrders.reduce((s, o) => s + o.totalLyd, 0)),
+        orders: dayOrders.length,
+      }
+    })
+
     const storeDues = stores.map((s) => {
       const deliveredOrders = s.orders.filter((o) => o.deliveredAt && o.deliveredAt >= todayStart)
       const dues = money(deliveredOrders.reduce((acc, o) => acc + o.subtotalLyd * 0.9, 0))
@@ -107,6 +128,8 @@ export async function GET(req: NextRequest) {
       promoCashbackOrders: cashback.orders,
       // 📉 الفرص الضائعة (محاولات كوبونات مرفوضة)
       promoRejects,
+      // 📈 اتجاه GMV الأسبوعي
+      weeklyTrend,
       stores: storeDues,
       drivers: drivers.map((d) => ({ ...d, status: d.status as DriverDTO['status'] })),
       lastAudit: lastAudit

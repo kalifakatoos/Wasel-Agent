@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { ensureSeed } from '@/lib/wasel/ensure-seed'
 import { computeDeliveryFee, haversineKm } from '@/lib/wasel/pricing'
-import { computePromoDiscountDb, recordPromoUsage, recordPromoReject } from '@/lib/wasel/promos-server'
+import { computePromoDiscountDb, recordPromoUsage, recordPromoReject, estimateLostDiscount } from '@/lib/wasel/promos-server'
 import { ensureGiftCardProducts, notifyCustomer, orderNotifyText } from '@/lib/wasel/notifications-server'
 import { emitRealtime, generateOtp, generateOrderNumber, isValidLibyanPhone, money } from '@/lib/wasel/server-utils'
 import { mapOrder } from '@/lib/wasel/orders-server'
@@ -105,6 +105,16 @@ export async function POST(req: NextRequest) {
       if (!pr.ok) {
         // 📉 تحليلات الفرص الضائعة: نوثّق المحاولات المرفوضة لأكواد معروفة (نفدت/معطل/تحت الحد)
         await recordPromoReject(pr.row, pr.reason, subtotal, customer_phone.trim())
+        // 🚨 تحذير لحظي لغرفة العمليات — الزبون حاول واستُبعد (فرصة استعادته قبل أن ينسحب)
+        await emitRealtime(['admin:fleet'], 'admin:promo_reject', {
+          code: pr.row?.code ?? null,
+          label: pr.row?.label ?? null,
+          reason: pr.reason,
+          subtotalLyd: subtotal,
+          lostLyd: estimateLostDiscount(pr.row, subtotal),
+          phoneMasked: customer_phone.trim().replace(/^(\d{3})\d{4}(\d{3})$/, '$1****$2'),
+          at: new Date().toISOString(),
+        })
         return NextResponse.json({ error: pr.error }, { status: 400 })
       }
       discount = money(pr.discount)

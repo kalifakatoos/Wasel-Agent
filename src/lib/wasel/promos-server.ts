@@ -239,6 +239,11 @@ function wouldBeDiscount(row: PromoRow | null, subtotal: number): number {
   return money(d)
 }
 
+/// تقدير قيمة الفرصة الضائعة لمسارات خارجية (بث التحذير اللحظي لغرفة العمليات)
+export function estimateLostDiscount(row: PromoRow | null, subtotal: number): number {
+  return wouldBeDiscount(row, subtotal)
+}
+
 /// توثيق محاولة كوبون مرفوضة (أكواد معروفة فقط — هكذا تبقى التحليلات نظيفة من أخطاء الكتابة)
 export async function recordPromoReject(
   row: PromoRow | null,

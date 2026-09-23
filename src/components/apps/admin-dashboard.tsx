@@ -3,6 +3,7 @@
 // ============================================================
 // 📊 لوحة المؤشرات — غرفة عمليات واصل نالوت (Task 7-d)
 // ============================================================
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -13,11 +14,13 @@ import {
   Gift,
   HandCoins,
   PackageCheck,
+  PlusCircle,
   Radar,
   Smartphone,
   Store,
   TicketPercent,
   TrendingDown,
+  TrendingUp,
   Wallet,
 } from 'lucide-react'
 import type { AccountingSummary } from '@/lib/wasel/types'
@@ -46,11 +49,16 @@ export default function DashboardTab({
   events,
   lastSync,
   positions = {},
+  quickRenew,
+  renewBusyCode = null,
 }: {
   summary: AccountingSummary | null
   events: FeedEvent[]
   lastSync: number | null
   positions?: Record<string, FleetPos>
+  /** ⚡ تجديد سريع لحصة كوبون نافد (يُمرر من غرفة العمليات) */
+  quickRenew?: (code: string, addUses?: number) => Promise<void>
+  renewBusyCode?: string | null
 }) {
   const s = summary
   const custodyHot = (s?.captainCustodyLyd ?? 0) > CUSTODY_CAP_LYD
@@ -90,8 +98,8 @@ export default function DashboardTab({
 
   return (
     <div className="space-y-4">
-      {/* شبكة المؤشرات */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+      {/* شبكة المؤشرات — دخول متدرج لكل البطاقات */}
+      <div className="kpi-stagger grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
         <KpiCard
           icon={<Coins className="h-5 w-5 text-[#F5D061]" />}
           label="إجمالي التداول GMV"
@@ -294,7 +302,7 @@ export default function DashboardTab({
               ) : (
                 <ul className="mt-3 space-y-1.5">
                   {breakdown.map((r) => (
-                    <li key={r.code} className="flex items-center justify-between rounded-lg bg-[#041710] px-2.5 py-1.5">
+                    <li key={r.code} className="flex items-center justify-between gap-2 rounded-lg bg-[#041710] px-2.5 py-1.5">
                       <span dir="ltr" className="ltr-nums font-money text-[11px] font-bold tracking-wider text-[#F8F5EE]">
                         {r.code}
                       </span>
@@ -304,6 +312,16 @@ export default function DashboardTab({
                         </span>
                         {r.count}× ≈ {r.lostLyd.toFixed(2)} د.ل
                       </span>
+                      {r.topReason === 'exhausted' && quickRenew && (
+                        <button
+                          onClick={() => void quickRenew(r.code)}
+                          disabled={renewBusyCode === r.code}
+                          className="gold-sweep flex min-h-9 shrink-0 items-center gap-1 rounded-lg bg-gradient-to-l from-[#D4AF37] to-[#F5D061] px-2.5 text-[10px] font-black text-[#041710] transition hover:from-[#C59B27] hover:to-[#D4AF37] disabled:opacity-50"
+                        >
+                          <PlusCircle className="h-3 w-3" />
+                          {renewBusyCode === r.code ? '…' : 'جدّد +10'}
+                        </button>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -312,6 +330,140 @@ export default function DashboardTab({
                 {count === 0
                   ? 'صحّة حملة ممتازة — الحصص الحالية كافية للطلب'
                   : `زِد حصة أو جدّد كود ${breakdown[0]?.code ?? 'الحملة'} لاستعادة هؤلاء الزبائن — كل محاولة مرفوضة عميل محتمل انسحب`}
+              </p>
+            </div>
+          )
+        })()}
+        {/* 📈 بطاقة اتجاه GMV الأسبوعي — سباركلاين حي لآخر 7 أيام */}
+        {(() => {
+          const trend = s?.weeklyTrend ?? []
+          if (trend.length === 0) return null
+          const W = 320
+          const H = 96
+          const PAD_X = 8
+          const PAD_TOP = 10
+          const PAD_BOTTOM = 22
+          const maxGmv = Math.max(...trend.map((d) => d.gmvLyd), 1)
+          const stepX = (W - PAD_X * 2) / (trend.length - 1)
+          const pts = trend.map((d, i) => ({
+            x: PAD_X + i * stepX,
+            y: PAD_TOP + (1 - d.gmvLyd / maxGmv) * (H - PAD_TOP - PAD_BOTTOM),
+            ...d,
+          }))
+          const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+          const areaPath = `${linePath} L${pts[pts.length - 1].x.toFixed(1)},${H - PAD_BOTTOM} L${pts[0].x.toFixed(1)},${H - PAD_BOTTOM} Z`
+          const today = pts[pts.length - 1]
+          const yesterday = pts[pts.length - 2]
+          const delta = yesterday && yesterday.gmvLyd > 0 ? ((today.gmvLyd - yesterday.gmvLyd) / yesterday.gmvLyd) * 100 : null
+          const weekTotal = trend.reduce((acc, d) => acc + d.gmvLyd, 0)
+          const bestDay = trend.reduce((b, d) => (d.gmvLyd > b.gmvLyd ? d : b), trend[0])
+          const rising = delta != null && delta >= 0
+          return (
+            <div className="card-lift spark-sheen relative overflow-hidden rounded-2xl border border-[rgba(16,185,129,0.3)] bg-[#062319]/70 p-4 col-span-2 md:col-span-3 xl:col-span-2">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#041710]">
+                    <TrendingUp className="h-5 w-5 text-[#10B981]" />
+                  </span>
+                  <div>
+                    <p className="text-[11px] font-bold text-[#938E7E]">اتجاه GMV — آخر 7 أيام</p>
+                    <p className="ltr-nums font-money text-xl font-bold text-[#10B981]">
+                      {weekTotal.toFixed(2)} <span className="text-xs">د.ل</span>
+                    </p>
+                  </div>
+                </div>
+                {delta != null && (
+                  <span
+                    className={`ltr-nums font-money flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                      rising
+                        ? 'border border-[rgba(16,185,129,0.4)] bg-[rgba(16,185,129,0.1)] text-[#10B981]'
+                        : 'border border-[rgba(239,68,68,0.4)] bg-[rgba(239,68,68,0.1)] text-[#EF4444]'
+                    }`}
+                  >
+                    {rising ? '▲' : '▼'} {Math.abs(delta).toFixed(0)}% عن أمس
+                  </span>
+                )}
+              </div>
+              <svg viewBox={`0 0 ${W} ${H}`} className="mt-3 w-full" role="img" aria-label="رسم بياني لتداول آخر سبعة أيام">
+                <defs>
+                  <linearGradient id="gmvSparkFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#10B981" stopOpacity="0.35" />
+                    <stop offset="100%" stopColor="#10B981" stopOpacity="0.02" />
+                  </linearGradient>
+                </defs>
+                {/* خطوط شبكة أفقية خافتة */}
+                {[0.25, 0.5, 0.75].map((f) => (
+                  <line
+                    key={f}
+                    x1={PAD_X}
+                    x2={W - PAD_X}
+                    y1={PAD_TOP + f * (H - PAD_TOP - PAD_BOTTOM)}
+                    y2={PAD_TOP + f * (H - PAD_TOP - PAD_BOTTOM)}
+                    stroke="rgba(212,175,55,0.08)"
+                    strokeDasharray="3 5"
+                  />
+                ))}
+                <motion.path
+                  d={areaPath}
+                  fill="url(#gmvSparkFill)"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.9, delay: 0.3 }}
+                />
+                <motion.path
+                  d={linePath}
+                  fill="none"
+                  stroke="#10B981"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  initial={{ pathLength: 0 }}
+                  animate={{ pathLength: 1 }}
+                  transition={{ duration: 1.4, ease: 'easeInOut' }}
+                />
+                {pts.map((p, i) => (
+                  <g key={p.date}>
+                    <circle
+                      cx={p.x}
+                      cy={p.y}
+                      r={i === pts.length - 1 ? 4 : 2.4}
+                      fill={i === pts.length - 1 ? '#F5D061' : '#10B981'}
+                      stroke={i === pts.length - 1 ? 'rgba(245,208,97,0.45)' : '#041710'}
+                      strokeWidth={i === pts.length - 1 ? 5 : 1}
+                    />
+                    {i === pts.length - 1 && (
+                      <motion.circle
+                        cx={p.x}
+                        cy={p.y}
+                        r="9"
+                        fill="none"
+                        stroke="#F5D061"
+                        strokeWidth="1"
+                        animate={{ r: [7, 13], opacity: [0.7, 0] }}
+                        transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }}
+                      />
+                    )}
+                  </g>
+                ))}
+                {/* تسميات أيام أول وأوسط وآخر */}
+                {[0, Math.floor((pts.length - 1) / 2), pts.length - 1].map((i) => (
+                  <text
+                    key={`lbl-${i}`}
+                    x={pts[i].x}
+                    y={H - 6}
+                    textAnchor={i === 0 ? 'start' : i === pts.length - 1 ? 'end' : 'middle'}
+                    fontSize="9"
+                    fontWeight={i === pts.length - 1 ? '800' : '600'}
+                    fill={i === pts.length - 1 ? '#F5D061' : '#938E7E'}
+                  >
+                    {i === pts.length - 1 ? 'اليوم' : trend[i].label}
+                  </text>
+                ))}
+              </svg>
+              <p className="mt-1.5 text-[10px] leading-relaxed text-[#938E7E]">
+                أفضل يوم: <span className="font-bold text-[#F5D061]">{bestDay.label}</span> بـ{' '}
+                <span className="ltr-nums font-money font-bold text-[#F8F5EE]">{bestDay.gmvLyd.toFixed(2)}</span> د.ل
+                {' '}• نقطة ذهبية نابضة = اليوم الحي
               </p>
             </div>
           )

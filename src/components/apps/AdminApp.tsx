@@ -11,11 +11,14 @@ import {
   LogOut,
   Lock,
   Map as MapIcon,
+  PlusCircle,
   ScrollText,
   ShoppingCart,
   Store as StoreIcon,
   TicketPercent,
+  TrendingDown,
   Users,
+  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp'
@@ -150,6 +153,12 @@ function PinLock({
 // ============================================================
 // التطبيق الرئيسي
 // ============================================================
+const REJECT_REASON_LABELS: Record<string, string> = {
+  exhausted: 'نفدت الحصة',
+  disabled: 'كوبون معطل',
+  min_not_met: 'تحت الحد الأدنى',
+}
+
 export default function AdminApp({ onExit }: { onExit: () => void }) {
   const { toast } = useToast()
 
@@ -171,6 +180,18 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
   const [lastSync, setLastSync] = useState<number | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [tab, setTab] = useState('dashboard')
+
+  // 🚨 تنبيه الفرص الضائعة اللحظي (كوبون رفض زبون أثناء الدفع)
+  const [promoAlert, setPromoAlert] = useState<{
+    code: string | null
+    label: string | null
+    reason: string
+    lostLyd: number
+    subtotalLyd: number
+    phoneMasked: string
+    at: number
+  } | null>(null)
+  const promoAlertTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -441,6 +462,34 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
       )
     }
 
+    const onPromoReject = (d: {
+      code?: string | null
+      label?: string | null
+      reason?: string
+      lostLyd?: number
+      subtotalLyd?: number
+      phoneMasked?: string
+    }) => {
+      const reason = d?.reason ?? 'unknown'
+      if (reason === 'unknown') return
+      setPromoAlert({
+        code: d?.code ?? null,
+        label: d?.label ?? null,
+        reason,
+        lostLyd: d?.lostLyd ?? 0,
+        subtotalLyd: d?.subtotalLyd ?? 0,
+        phoneMasked: d?.phoneMasked ?? '',
+        at: Date.now(),
+      })
+      pushEvent(
+        'promo',
+        `📉 فرصة ضائعة: زبون (${d?.phoneMasked ?? 'مجهول'}) حاول كوبون ${d?.code ?? '؟'} — ${REJECT_REASON_LABELS[reason] ?? reason}`,
+        d?.lostLyd ? `خسارة تقديرية ${(d.lostLyd ?? 0).toFixed(2)} د.ل — قيمة سلة ${(d?.subtotalLyd ?? 0).toFixed(2)} د.ل` : undefined,
+      )
+      if (promoAlertTimer.current) clearTimeout(promoAlertTimer.current)
+      promoAlertTimer.current = setTimeout(() => setPromoAlert(null), 45000)
+    }
+
     if (s.connected) onConnect()
     s.on('connect', onConnect)
     s.on('disconnect', onDisconnect)
@@ -452,6 +501,7 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
     s.on('driver:custody_settled', onCustodySettled)
     s.on('store:payout_settled', onStorePayout)
     s.on('store:promo_applied', onPromoApplied)
+    s.on('admin:promo_reject', onPromoReject)
     s.on('wallet:topup_redeemed', onTopupRedeemed)
     s.on('store:giftcard_sold', onGiftCardSold)
     s.on('wallet:promo_cashback', onPromoCashback)
@@ -467,6 +517,7 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
       s.off('driver:custody_settled', onCustodySettled)
       s.off('store:payout_settled', onStorePayout)
       s.off('store:promo_applied', onPromoApplied)
+      s.off('admin:promo_reject', onPromoReject)
       s.off('wallet:topup_redeemed', onTopupRedeemed)
       s.off('store:giftcard_sold', onGiftCardSold)
       s.off('wallet:promo_cashback', onPromoCashback)
@@ -576,6 +627,30 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
           title: next ? '🟢 فُعّل الكوبون' : '🟠 عُطّل الكوبون',
           description: `الكود ${code} ${next ? 'يظهر للزبائن الآن' : 'اختفى من الزبائن — الطلبات القائمة سليمة'}`,
         })
+        void loadAll(pin)
+      } catch (e) {
+        handleAdminError(e)
+      } finally {
+        setBusy(null)
+      }
+    },
+    [pin, loadAll, handleAdminError, toast],
+  )
+
+  // ⚡ تجديد سريع لحصة كوبون نافد (من تنبيه الفرص الضائعة اللحظي أو بطاقة الداشبورد)
+  const quickRenew = useCallback(
+    async (code: string, addUses = 10) => {
+      setBusy(`renew:${code}`)
+      try {
+        const r = await api<{ ok: boolean; addedUses: number }>('/api/admin/promos', {
+          method: 'PATCH',
+          body: JSON.stringify({ pin, code, addUses }),
+        })
+        toast({
+          title: `⚡ زِدت حصة ${code} بـ ${r.addedUses} استخدامات`,
+          description: 'الكوبون فعّال وظهر للزبائن من جديد — أمسك الفرصة قبل أن تبرح',
+        })
+        setPromoAlert((prev) => (prev?.code === code ? null : prev))
         void loadAll(pin)
       } catch (e) {
         handleAdminError(e)
@@ -755,6 +830,72 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
 
             {/* ======= الجسم ======= */}
             <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-5">
+              {/* 🚨 تنبيه الفرص الضائعة اللحظي — يظهر فوق كل التبويبات */}
+              <AnimatePresence>
+                {promoAlert && (
+                  <motion.div
+                    key={promoAlert.at}
+                    initial={{ opacity: 0, y: -18, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -12, scale: 0.97 }}
+                    transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+                    className="relative mb-4 overflow-hidden rounded-2xl border border-[rgba(239,68,68,0.5)] bg-gradient-to-l from-[rgba(239,68,68,0.14)] via-[rgba(245,158,11,0.1)] to-[rgba(239,68,68,0.14)] p-4 shadow-lg shadow-[rgba(239,68,68,0.15)]"
+                    role="alert"
+                  >
+                    <span className="absolute inset-x-0 top-0 h-0.5 animate-pulse bg-gradient-to-l from-[#EF4444] via-[#F59E0B] to-[#EF4444]" />
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[rgba(239,68,68,0.16)] shadow-[0_0_0_1px_rgba(239,68,68,0.4)]">
+                        <TrendingDown className="h-5 w-5 text-[#EF4444]" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13.5px] font-extrabold text-[#F8F5EE]">
+                          📉 فرصة ضائعة الآن — زبون <span dir="ltr" className="font-money ltr-nums text-[#F59E0B]">{promoAlert.phoneMasked || 'مجهول'}</span>
+                          {' '}حاول كوبون <span dir="ltr" className="font-money ltr-nums text-[#F5D061]">{promoAlert.code ?? '؟'}</span>
+                          {' '}{REJECT_REASON_LABELS[promoAlert.reason] ?? promoAlert.reason}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-[#938E7E]">
+                          قيمة سلته {(promoAlert.subtotalLyd ?? 0).toFixed(2)} د.ل • خسارة تقديرية ≈{' '}
+                          <span className="font-money ltr-nums font-bold text-[#EF4444]">{(promoAlert.lostLyd ?? 0).toFixed(2)}</span> د.ل
+                          {' '}— أمسِكه بجدّد الحصة قبل أن يطلب من مكان آخر
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {promoAlert.code && promoAlert.reason === 'exhausted' && (
+                          <Button
+                            size="sm"
+                            onClick={() => void quickRenew(promoAlert.code!)}
+                            disabled={busy === `renew:${promoAlert.code}`}
+                            className="gold-sweep min-h-11 bg-gradient-to-l from-[#D4AF37] to-[#F5D061] px-4 text-[12.5px] font-extrabold text-[#041710] hover:from-[#C59B27] hover:to-[#D4AF37]"
+                          >
+                            <PlusCircle className="h-4 w-4" />
+                            {busy === `renew:${promoAlert.code}` ? 'جارٍ التجديد…' : 'جدّد الحصة +10'}
+                          </Button>
+                        )}
+                        {promoAlert.code && promoAlert.reason === 'disabled' && (
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              void togglePromo(promoAlert.code!, true)
+                              setPromoAlert(null)
+                            }}
+                            className="min-h-11 border border-[rgba(16,185,129,0.5)] bg-[rgba(16,185,129,0.12)] px-4 text-[12.5px] font-extrabold text-[#10B981] hover:bg-[rgba(16,185,129,0.22)]"
+                          >
+                            🟢 فعّل الكوبون
+                          </Button>
+                        )}
+                        <button
+                          onClick={() => setPromoAlert(null)}
+                          aria-label="إغلاق التنبيه"
+                          className="flex h-11 w-11 items-center justify-center rounded-xl text-[#938E7E] transition hover:bg-[rgba(239,68,68,0.12)] hover:text-[#EF4444]"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               <Tabs value={tab} onValueChange={setTab} className="gap-4">
                 <div className="wasel-scroll -mx-1 overflow-x-auto px-1 pb-1">
                   <TabsList className="h-auto w-full min-w-max justify-start gap-1 border border-[rgba(212,175,55,0.2)] bg-[#062319]/80 p-1.5">
@@ -781,7 +922,7 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
 
                 <TabsContent value="dashboard">
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
-                    <DashboardTab summary={summary} events={feed} lastSync={lastSync} positions={positions} />
+                    <DashboardTab summary={summary} events={feed} lastSync={lastSync} positions={positions} quickRenew={quickRenew} renewBusyCode={busy?.startsWith('renew:') ? busy.slice(6) : null} />
                   </motion.div>
                 </TabsContent>
 

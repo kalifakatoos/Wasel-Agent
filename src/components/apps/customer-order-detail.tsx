@@ -3,7 +3,7 @@
 // 🧾 تفاصيل الطلب (فاتورة) + ⭐ تقييم ما بعد التسليم — واصل نالوت
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Star } from 'lucide-react'
+import { Printer, Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Ly, OrderNo, StatusBadge } from '@/components/wasel/Badges'
@@ -248,6 +248,16 @@ export function OrderDetailScreen({
               <Ly amount={order.totalLyd} bold />
             </div>
           </div>
+
+          {/* 🖨️ طباعة الفاتورة / حفظها PDF — A5 */}
+          <Button
+            onClick={() => printInvoice(order)}
+            variant="outline"
+            className="mt-4 h-11 w-full rounded-xl border-[rgba(212,175,55,0.4)] bg-[#041710] text-[12.5px] font-extrabold text-[#F5D061] transition hover:bg-[rgba(212,175,55,0.08)] hover:text-[#F5D061]"
+          >
+            <Printer className="h-4 w-4" />
+            طباعة الفاتورة / حفظها PDF
+          </Button>
         </div>
 
         {/* نزاع/إلغاء */}
@@ -313,4 +323,165 @@ export function OrderDetailScreen({
       </div>
     </div>
   )
+}
+
+// ============================================================
+// 🖨️ طباعة فاتورة الطلب — A5 عربي RTL (حفظ PDF أو ورق)
+// عبر iframe خفي كي لا تتأثر ستايلات التطبيق الداكنة
+// ============================================================
+function buildInvoiceHtml(o: OrderDTO): string {
+  const fmt = (n: number) => n.toFixed(2)
+  const created = new Date(o.createdAt).toLocaleString('ar-LY', { dateStyle: 'long', timeStyle: 'short' })
+  const delivered = o.deliveredAt
+    ? new Date(o.deliveredAt).toLocaleString('ar-LY', { dateStyle: 'long', timeStyle: 'short' })
+    : null
+  const payment = o.paymentMethod === 'wallet' ? 'محفظة واصل (مدفوع مقدماً)' : 'نقداً عند الاستلام'
+
+  const itemRows = o.items
+    .map((it) => {
+      const isGift = it.productId.startsWith('giftcard-')
+      return `<tr>
+        <td class="q">${it.qty}×</td>
+        <td>
+          ${it.title}
+          ${isGift ? '<span class="gift">💳 بطاقة شحن — يُصدر الكود آلياً عند التسليم</span>' : ''}
+          ${it.notes ? `<span class="note">📝 ${it.notes}</span>` : ''}
+        </td>
+        <td class="v">${fmt(it.unitPrice * it.qty)} د.ل</td>
+      </tr>`
+    })
+    .join('\n')
+
+  return `<!doctype html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="utf-8" />
+<title>فاتورة طلب ${o.orderNumber} — واصل نالوت</title>
+<style>
+  @page { size: A5; margin: 11mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Tajawal', 'Cairo', 'Segoe UI', Tahoma, sans-serif;
+    color: #1a1a1a;
+    background: #fff;
+    padding: 18px;
+  }
+  .sheet { max-width: 100%; }
+  .head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border: 2px solid #0a5c3c;
+    border-radius: 10px;
+    padding: 12px 14px;
+    background: #f2faf6;
+  }
+  .head .brand { font-size: 17px; font-weight: 800; color: #0a5c3c; }
+  .head .sub { font-size: 10.5px; color: #556; margin-top: 2px; }
+  .head .code { font-size: 18px; font-weight: 800; letter-spacing: 1px; color: #b8860b; font-variant-numeric: tabular-nums; }
+  .head .badge { display: inline-block; margin-top: 4px; font-size: 10px; font-weight: 800; padding: 3px 10px; border-radius: 999px; border: 1px solid #0a5c3c; color: #0a5c3c; }
+  .meta { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; font-size: 11.5px; }
+  .meta div { border-bottom: 1px dotted #bbb; padding-bottom: 4px; }
+  .meta b { color: #0a5c3c; font-weight: 800; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  thead th { font-size: 10.5px; color: #0a5c3c; border-bottom: 1.5px solid #0a5c3c; padding: 6px 4px; text-align: right; }
+  thead th.v { text-align: left; }
+  tbody td { padding: 7px 4px; border-bottom: 1px dotted #999; font-size: 12px; vertical-align: top; }
+  td.q { width: 34px; font-weight: 800; color: #b8860b; font-variant-numeric: tabular-nums; }
+  td.v { text-align: left; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td .gift { display: block; margin-top: 2px; font-size: 9.5px; font-weight: 800; color: #8a6d1c; }
+  td .note { display: block; margin-top: 2px; font-size: 9.5px; color: #8a5a11; }
+  .totals { margin-top: 10px; font-size: 12px; }
+  .totals div { display: flex; justify-content: space-between; padding: 4px 2px; border-bottom: 1px dotted #ccc; }
+  .totals .off { color: #0E7A57; font-weight: 700; }
+  .totals .grand { border-bottom: 2px solid #0a5c3c; border-top: 1.5px solid #0a5c3c; font-size: 14.5px; font-weight: 800; color: #0a5c3c; margin-top: 2px; padding: 8px 2px; }
+  .legal {
+    margin-top: 12px;
+    border: 1.5px dashed #0a5c3c;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 10px;
+    line-height: 1.7;
+    color: #234;
+    background: #f2faf6;
+  }
+  .seal {
+    margin-top: 10px; text-align: center; font-size: 10.5px; font-weight: 800; color: #0a5c3c;
+  }
+  .foot { margin-top: 10px; text-align: center; font-size: 9.5px; color: #888; }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="head">
+      <div>
+        <div class="brand">🛡️ واصل نالوت — فاتورة طلب</div>
+        <div class="sub">منظومة التوصيل الفائقة — نالوت • جبل نفوسة • ليبيا</div>
+        <div class="badge">نسخة الزبون</div>
+      </div>
+      <div style="text-align:left">
+        <div class="code">${o.orderNumber}</div>
+        <div class="sub">${created}</div>
+      </div>
+    </div>
+
+    <div class="meta">
+      <div><b>المتجر:</b> ${o.storeEmoji ?? '🏪'} ${o.storeName}</div>
+      <div><b>الزبون:</b> ${o.customerName}</div>
+      <div><b>الحي:</b> ${o.district}</div>
+      <div><b>الهاتف:</b> <span style="font-variant-numeric:tabular-nums">${o.customerPhone}</span></div>
+      <div style="grid-column: 1 / -1;"><b>عنوان التوصيل:</b> ${o.deliveryAddress}</div>
+      ${o.driverName ? `<div><b>كابتن التوصيل:</b> ${o.driverName}</div>` : ''}
+      <div><b>طريقة الدفع:</b> ${payment}</div>
+      ${delivered ? `<div style="grid-column: 1 / -1;"><b>سُلّم في:</b> ${delivered}</div>` : ''}
+    </div>
+
+    <table>
+      <thead>
+        <tr><th>الكمية</th><th>الصنف</th><th class="v">السعر</th></tr>
+      </thead>
+      <tbody>
+        ${itemRows}
+      </tbody>
+    </table>
+
+    <div class="totals">
+      <div><span>قيمة الأصناف (عقد بيع قطعي)</span><span>${fmt(o.subtotalLyd)} د.ل</span></div>
+      <div><span>أجرة التوصيل (عقد إجارة عمل)</span><span>${fmt(o.deliveryFeeLyd)} د.ل</span></div>
+      <div><span>رسوم خدمة واصل</span><span>0.00 د.ل</span></div>
+      ${o.discountLyd > 0 ? `<div class="off"><span>🎟️ خصم الكوبون ${o.promoCode ?? ''} (يتحمله واصل)</span><span>- ${fmt(o.discountLyd)} د.ل</span></div>` : ''}
+      <div class="grand"><span>الإجمالي المستحق</span><span>${fmt(o.totalLyd)} د.ل</span></div>
+    </div>
+
+    <div class="legal">
+      📜 <b>الإطار الشرعي:</b> ثمن الأصناف عقد <b>بيع قطعي</b> بين الزبون والمتجر، وأجرة التوصيل عقد <b>إجارة عمل</b>
+      بين الزبون والكابتن — واصل نالوت وسيط شفاف بأجر 10% من ثمن البضاعة فقط، <b>بلا رسوم خفية وبلا فوائد</b>.
+      المبالغ النقدية تُقبض وتُورّد بموجب سندات موثقة في غرفة العمليات.
+    </div>
+    <div class="seal">✓ فاتورة إلكترونية موثقة — كل قرش مُساءل</div>
+    <div class="foot">واصل نالوت • بالدينار الليبي حصرياً • خدمة الزبائن داخل التطبيق</div>
+  </div>
+</body>
+</html>`
+}
+
+function printInvoice(o: OrderDTO): void {
+  const iframe = document.createElement('iframe')
+  iframe.style.position = 'fixed'
+  iframe.style.right = '0'
+  iframe.style.bottom = '0'
+  iframe.style.width = '0'
+  iframe.style.height = '0'
+  iframe.style.border = '0'
+  document.body.appendChild(iframe)
+  const doc = iframe.contentWindow?.document
+  if (!doc) return
+  doc.open()
+  doc.write(buildInvoiceHtml(o))
+  doc.close()
+  iframe.contentWindow?.focus()
+  window.setTimeout(() => {
+    iframe.contentWindow?.print()
+    window.setTimeout(() => iframe.remove(), 1200)
+  }, 350)
 }

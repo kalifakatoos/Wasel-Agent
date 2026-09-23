@@ -151,6 +151,8 @@ export interface AccountingSummary {
   /// 🛵 مؤشرات نجاح التوزيع: طلبات قبلها المتجر (مؤهلة للتوزيع) ووُجّه لها كابتن
   dispatchEligible: number
   dispatchAssigned: number
+  /// 📈 اتجاه GMV آخر 7 أيام (الأقدم أولاً — اليوم أخيرها) لرسم السباركلاين في الداشبورد
+  weeklyTrend: { date: string; label: string; gmvLyd: number; orders: number }[]
   /// 🎟️ تحليلات الكوبونات اليومية (الخصم تتحمله المنصة)
   promoDiscountLyd: number
   promoOrders: number
