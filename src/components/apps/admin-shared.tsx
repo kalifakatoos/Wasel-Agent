@@ -43,6 +43,7 @@ export interface ResolveNoShowResult {
   storeVoucher: VoucherDTO
   storePayout: number
   captainFee: number
+  captainPaid: boolean
   blockedPhone: string
 }
 

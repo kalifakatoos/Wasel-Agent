@@ -467,7 +467,7 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
         })
         toast({
           title: `فُضّ نزاع الطلب ${r.orderNumber}`,
-          description: `صرف للمتجر ${r.storePayout.toFixed(2)} د.ل • أجرة الكابتن ${r.captainFee.toFixed(2)} د.ل • حُظر الزبون ${r.blockedPhone}`,
+          description: `صرف للمتجر ${r.storePayout.toFixed(2)} د.ل • ${r.captainPaid ? `أُودعت أجرة الكابتن ${r.captainFee.toFixed(2)} د.ل لمحفظته` : 'لا يوجد كابتن مُعيَّن — لم تُصرف أي أجرة'} • حُظر الزبون ${r.blockedPhone}`,
         })
         void loadAll(pin)
         return r

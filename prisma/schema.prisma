@@ -91,6 +91,8 @@ model Order {
   deliveryFeeLyd Float
   serviceFeeLyd  Float     @default(0) // صفر على الزبون دائماً
   discountLyd    Float     @default(0)
+  /// كود الخصم المطبق (إن وجد) — WASEL10 / NAALUT5 / JEBEL15
+  promoCode      String?
   totalLyd       Float
   deliveryAddress String
   district       String    @default("وسط نالوت")

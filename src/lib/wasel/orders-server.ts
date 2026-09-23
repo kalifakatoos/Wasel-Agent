@@ -17,19 +17,20 @@ type OrderRow = {
   readyAt: Date | null; handoverAt: Date | null; deliveredAt: Date | null
   notes: string; disputeNote: string | null
   ratedAt: Date | null; storeStars: number | null; driverStars: number | null
+  promoCode?: string | null
   createdAt: Date
 }
 
-/// ترقيع حقول التقييم الجديدة عبر SQL خام (متوافق مع عميل Prisma قديم محمّل في الذاكرة)
+/// ترقيع حقول التقييم والكوبونات الجديدة عبر SQL خام (متوافق مع عميل Prisma قديم محمّل في الذاكرة)
 export async function patchNewOrderFields<T extends { id: string }>(orders: T[]): Promise<T[]> {
   if (orders.length === 0) return orders
   try {
     const ids = orders.map((o) => o.id)
     const placeholders = ids.map(() => '?').join(',')
     const rows = await db.$queryRawUnsafe<{
-      id: string; ratedAt: string | null; storeStars: number | null; driverStars: number | null
+      id: string; ratedAt: string | null; storeStars: number | null; driverStars: number | null; promoCode: string | null
     }[]>(
-      `SELECT id, ratedAt, storeStars, driverStars FROM "Order" WHERE id IN (${placeholders})`,
+      `SELECT id, ratedAt, storeStars, driverStars, "promoCode" FROM "Order" WHERE id IN (${placeholders})`,
       ...ids,
     )
     const byId = new Map(rows.map((r) => [r.id, r]))
@@ -41,6 +42,7 @@ export async function patchNewOrderFields<T extends { id: string }>(orders: T[])
         ratedAt: (o as { ratedAt?: unknown }).ratedAt ?? patch.ratedAt ?? null,
         storeStars: (o as { storeStars?: unknown }).storeStars ?? patch.storeStars ?? null,
         driverStars: (o as { driverStars?: unknown }).driverStars ?? patch.driverStars ?? null,
+        promoCode: (o as { promoCode?: unknown }).promoCode ?? patch.promoCode ?? null,
       }
     })
   } catch {
@@ -82,6 +84,7 @@ export function mapOrder(o: OrderRow, store?: { latitude: number; longitude: num
     ratedAt: o.ratedAt?.toISOString() ?? null,
     storeStars: o.storeStars,
     driverStars: o.driverStars,
+    promoCode: o.promoCode ?? null,
     createdAt: o.createdAt.toISOString(),
     storeLatitude: store?.latitude,
     storeLongitude: store?.longitude,

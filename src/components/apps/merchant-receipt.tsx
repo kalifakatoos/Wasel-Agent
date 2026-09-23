@@ -156,6 +156,11 @@ export function ThermalReceiptDialog({
           <Row label="رسوم الخدمة:">
             <Ly amount={0} className="text-black" />
           </Row>
+          {order.discountLyd > 0 ? (
+            <Row label={`خصم كوبون ${order.promoCode ?? ''} (المنصة):`}>
+              <Ly amount={-order.discountLyd} className="text-black" />
+            </Row>
+          ) : null}
           <Row label="الإجمالي المطلوب من الزبون:">
             <Ly amount={order.totalLyd} className="text-base text-black" bold />
           </Row>

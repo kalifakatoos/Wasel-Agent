@@ -418,6 +418,14 @@ export function TrackingScreen({
                   <Ly amount={order.serviceFeeLyd} className="text-[#10B981]" /> ✅
                 </span>
               </div>
+              {order.discountLyd > 0 && (
+                <div className="flex justify-between text-xs">
+                  <span className="flex items-center gap-1 text-[#10B981]">
+                    🎟️ خصم {order.promoCode ? <span dir="ltr" className="font-money font-bold">{order.promoCode}</span> : ''}
+                  </span>
+                  <Ly amount={-order.discountLyd} className="font-bold text-[#10B981]" />
+                </div>
+              )}
               <div className="flex items-center justify-between border-t border-[rgba(212,175,55,0.15)] pt-2.5">
                 <span className="text-sm font-extrabold text-[#F8F5EE]">
                   الإجمالي • {order.paymentMethod === 'wallet' ? '👛 محفظة واصل' : '💵 كاش عند الاستلام'}

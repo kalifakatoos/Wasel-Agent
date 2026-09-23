@@ -64,6 +64,13 @@ export async function GET(req: NextRequest) {
       captainDuesLyd: captainDues,
       platformNetLyd: platformNet,
       walletPaymentsLyd: walletPayments,
+      // 🛵 مؤشرات نجاح التوزيع (الرادار): من الطلبات التي قبلها المتجر، كم طلباً وُجّه إليه كابتن؟
+      dispatchEligible: todayOrders.filter(
+        (o) => ['accepted', 'preparing', 'ready_for_pickup', 'out_for_delivery', 'delivered'].includes(o.status),
+      ).length,
+      dispatchAssigned: todayOrders.filter(
+        (o) => ['accepted', 'preparing', 'ready_for_pickup', 'out_for_delivery', 'delivered'].includes(o.status) && o.driverId,
+      ).length,
       stores: storeDues,
       drivers: drivers.map((d) => ({ ...d, status: d.status as DriverDTO['status'] })),
       lastAudit: lastAudit

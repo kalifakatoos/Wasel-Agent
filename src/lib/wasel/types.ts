@@ -100,6 +100,8 @@ export interface OrderDTO {
   ratedAt: string | null
   storeStars: number | null
   driverStars: number | null
+  /// كود الخصم المطبق (إن وجد)
+  promoCode?: string | null
   createdAt: string
   storeLatitude?: number
   storeLongitude?: number
@@ -146,6 +148,9 @@ export interface AccountingSummary {
   captainDuesLyd: number
   platformNetLyd: number
   walletPaymentsLyd: number
+  /// 🛵 مؤشرات نجاح التوزيع: طلبات قبلها المتجر (مؤهلة للتوزيع) ووُجّه لها كابتن
+  dispatchEligible: number
+  dispatchAssigned: number
   stores: { id: string; name: string; emoji: string; dues: number; payoutPaid: number }[]
   drivers: DriverDTO[]
   lastAudit: { auditCode: string; auditDate: string; gmvLyd: number; cashCollectedLyd: number; isClosed: boolean; closedAt: string | null } | null

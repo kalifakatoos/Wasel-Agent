@@ -99,6 +99,54 @@ export default function DashboardTab({
           tone="plain"
           text={`${s?.activeOrders ?? 0} نشط • ${s?.deliveredOrders ?? 0} مسلّم`}
         />
+        {/* 🛵 بطاقة نجاح التوزيع المخصصة مع شريط تقدم */}
+        {(() => {
+          const eligible = s?.dispatchEligible ?? 0
+          const assigned = s?.dispatchAssigned ?? 0
+          const pct = eligible > 0 ? Math.round((assigned / eligible) * 100) : 0
+          const good = pct >= 80
+          return (
+            <div
+              className={`relative overflow-hidden rounded-2xl border p-4 transition ${
+                good
+                  ? 'border-[rgba(16,185,129,0.35)] bg-[rgba(16,185,129,0.07)]'
+                  : 'border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.07)]'
+              }`}
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#041710]">
+                    <Radar className={`h-5 w-5 ${good ? 'text-[#10B981]' : 'text-[#F59E0B]'}`} />
+                  </span>
+                  <div>
+                    <p className="text-[11px] font-bold text-[#938E7E]">نجاح التوزيع (الرادار)</p>
+                    <p className={`ltr-nums font-money text-xl font-bold ${good ? 'text-[#10B981]' : 'text-[#F59E0B]'}`}>
+                      {eligible > 0 ? `${pct}%` : '—'}
+                    </p>
+                  </div>
+                </div>
+                <span className="ltr-nums font-money text-[11px] font-bold text-[#F8F5EE]">
+                  {assigned}/{eligible}
+                </span>
+              </div>
+              <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-[#041710]">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${eligible > 0 ? pct : 0}%` }}
+                  transition={{ duration: 0.7, ease: 'easeOut' }}
+                  className={`h-full rounded-full ${good ? 'bg-[#10B981]' : 'bg-[#F59E0B]'}`}
+                />
+              </div>
+              <p className="mt-2 text-[10px] leading-relaxed text-[#938E7E]">
+                {eligible === 0
+                  ? 'لا طلبات مؤهلة للتوزيع بعد اليوم'
+                  : good
+                    ? 'الأسطول يستوعب الطلبات بكفاءة ممتازة'
+                    : 'طلبات بلا كابتن — فعّل المزيد من الكباتن'}
+              </p>
+            </div>
+          )
+        })()}
       </div>
 
       {/* السجل الحي */}

@@ -134,6 +134,7 @@ export async function POST(req: NextRequest) {
       storeVoucher: voucher,
       storePayout,
       captainFee: deliveryFee,
+      captainPaid: Boolean(order.driverId),
       blockedPhone: order.customerPhone,
     })
   } catch (e) {

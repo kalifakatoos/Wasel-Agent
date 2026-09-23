@@ -205,6 +205,21 @@ export function OrderDetailScreen({
               <span>رسوم خدمة واصل</span>
               <Ly amount={0} />
             </div>
+            {order.discountLyd > 0 && (
+              <div className="flex justify-between text-[#10B981]">
+                <span>
+                  🎟️ خصم{' '}
+                  {order.promoCode ? (
+                    <span dir="ltr" className="font-money font-bold">
+                      {order.promoCode}
+                    </span>
+                  ) : (
+                    ''
+                  )}
+                </span>
+                <Ly amount={-order.discountLyd} />
+              </div>
+            )}
             <Separator className="my-2 bg-[rgba(212,175,55,0.15)]" />
             <div className="flex justify-between text-base font-extrabold text-[#F8F5EE]">
               <span>الإجمالي {order.paymentMethod === 'wallet' ? '(مدفوع بالمحفظة)' : '(كاش عند الاستلام)'}</span>

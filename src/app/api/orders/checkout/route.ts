@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { ensureSeed } from '@/lib/wasel/ensure-seed'
 import { computeDeliveryFee, haversineKm } from '@/lib/wasel/pricing'
+import { computePromoDiscount } from '@/lib/wasel/promos'
 import { emitRealtime, generateOtp, generateOrderNumber, isValidLibyanPhone, money } from '@/lib/wasel/server-utils'
 import { mapOrder } from '@/lib/wasel/orders-server'
 import { DISTRICTS } from '@/lib/wasel/constants'
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const {
       store_id, items, customer_name, customer_phone,
-      delivery_address, district, payment_method, notes,
+      delivery_address, district, payment_method, notes, promo_code,
     } = body as {
       store_id: string
       items: { productId: string; qty: number; notes?: string }[]
@@ -33,6 +34,7 @@ export async function POST(req: NextRequest) {
       district: string
       payment_method: 'cash' | 'wallet'
       notes?: string
+      promo_code?: string
     }
 
     // 🔒 درع الحجب: رقم الزبون محظور بسبب نزاع سابق؟
@@ -88,7 +90,18 @@ export async function POST(req: NextRequest) {
     const { fee } = computeDeliveryFee(distanceKm, demand, Math.max(onlineDrivers, 1))
     const deliveryFee = money(fee)
     const serviceFee = 0 // صفر على الزبون دائماً (الامتثال الشرعي)
-    const total = money(subtotal + deliveryFee + serviceFee)
+
+    // 🎟️ الخصم: تتحمله المنصة كاملاً — لا يمس حصة المتجر ولا أجرة الكابتن
+    let discount = 0
+    let appliedPromo: string | null = null
+    if (promo_code && promo_code.trim()) {
+      const pr = computePromoDiscount(promo_code, subtotal)
+      if (!pr.ok) return NextResponse.json({ error: pr.error }, { status: 400 })
+      discount = money(pr.discount)
+      appliedPromo = pr.promo.code
+    }
+
+    const total = money(Math.max(0, subtotal + deliveryFee + serviceFee - discount))
 
     // الدفع بالمحفظة: حجز الرصيد في الضمان
     if (payment_method === 'wallet') {
@@ -117,7 +130,7 @@ export async function POST(req: NextRequest) {
         subtotalLyd: subtotal,
         deliveryFeeLyd: deliveryFee,
         serviceFeeLyd: serviceFee,
-        discountLyd: 0,
+        discountLyd: discount,
         totalLyd: total,
         deliveryAddress: delivery_address.trim().slice(0, 200),
         district: DISTRICTS.includes(district as (typeof DISTRICTS)[number]) ? district : DISTRICTS[0],
@@ -153,6 +166,16 @@ export async function POST(req: NextRequest) {
     }
 
     const dto = mapOrder(order, store)
+
+    // عمود promoCode جديد: كتابة عبر SQL خام (توافق مع عميل Prisma قديم بالذاكرة)
+    if (appliedPromo) {
+      try {
+        await db.$executeRawUnsafe(`UPDATE "Order" SET "promoCode" = ? WHERE id = ?`, appliedPromo, order.id)
+        ;(dto as { promoCode?: string }).promoCode = appliedPromo
+      } catch {
+        /* العمود موجود لكن تجاهل أي فشل غير متوقع */
+      }
+    }
 
     // 🔔 رنين قوي في تابلت المطبخ (غرفة المتجر)
     await emitRealtime([`store:${store.id}`, 'admin:fleet'], 'store:new_order', {

@@ -291,6 +291,13 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
   const [busyProductId, setBusyProductId] = useState<string | null>(null)
   const [plates, setPlates] = useState<Record<string, string>>({})
   const [search, setSearch] = useState('')
+  /// 📜 سجل النشاط الحي للمتجر (أحدث أولاً — حد أقصى 8 أحداث)
+  const [activity, setActivity] = useState<{ id: string; emoji: string; text: string; at: number }[]>([])
+  const pushActivity = useCallback((emoji: string, text: string) => {
+    setActivity((prev) =>
+      [{ id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, emoji, text, at: Date.now() }, ...prev].slice(0, 8),
+    )
+  }, [])
 
   const storeId = merchantStoreId
   const storeIdRef = useRef(storeId)
@@ -402,6 +409,7 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
     const onDisconnect = () => setConnected(false)
     const onNewOrder = (p: NewOrderPayload) => {
       if (soundRef.current) playNewOrderBeep()
+      pushActivity('🔔', `طلب جديد ${p.orderNumber} من ${p.customerName}`)
       toast({
         title: '🔔 طلب جديد وصل!',
         description: `${p.orderNumber} — ${p.customerName} • ${p.district}`,
@@ -411,17 +419,23 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
     }
     const onStatusChanged = (p: StatusChangedPayload) => {
       if (p.status === 'out_for_delivery') {
+        pushActivity('🛵', `${p.orderNumber ?? 'الطلب'} انطلق مع الكابتن للتسليم`)
         toast({
           title: '🛵 انطلق الطلب للتسليم',
           description: `${p.orderNumber ?? ''} خرج مع الكابتن — بالتوفيق!`,
           duration: 6000,
         })
+      } else if (p.status === 'disputed') {
+        pushActivity('⚖️', `فُضّ نزاع ${p.orderNumber ?? 'طلب'} — تعذر التسليم`)
+      } else if (p.status === 'cancelled') {
+        pushActivity('🚫', `أُلغي الطلب ${p.orderNumber ?? ''}`)
       }
       void loadActive(storeId, true)
       void loadAllOrders(storeId, true)
     }
     const onAssigned = (p: AssignedPayload) => {
       setPlates((prev) => ({ ...prev, [p.orderId]: p.plateNumber }))
+      pushActivity('🧑‍✈️', `كابتن ${p.driverName} يتكفل بالطلب — ${p.plateNumber}`)
       toast({
         title: '🛵 عُيِّن كابتن للطلب',
         description: `${p.driverName} — لوحة ${p.plateNumber}`,
@@ -438,6 +452,7 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
       )
     }
     const onPayout = (p: PayoutPayload) => {
+      pushActivity('💰', `صُرفت مستحقاتكم ${p.amount.toFixed(2)} د.ل — سند ${p.voucherNumber}`)
       toast({
         title: '💰 صُرفت مستحقاتكم',
         description: `${p.amount.toFixed(2)} د.ل — سند رقم ${p.voucherNumber}`,
@@ -448,6 +463,7 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
       if (p.storeId !== storeIdRef.current) return
       setStores((prev) => prev.map((s) => (s.id === p.storeId ? { ...s, isOpen: p.isOpen } : s)))
       setMenuStore((prev) => (prev && prev.id === p.storeId ? { ...prev, isOpen: p.isOpen } : prev))
+      pushActivity(p.isOpen ? '🟢' : '🔴', p.isOpen ? 'أُعيد فتح المتجر لاستقبال الطلبات' : 'أُغلق المتجر مؤقتاً')
       toast({
         title: p.isOpen ? '🟢 المتجر مفتوح لاستقبال الطلبات' : '🔴 تم إغلاق المتجر مؤقتاً',
         description: p.isOpen ? 'ستصلكم الطلبات الجديدة فوراً' : 'لن تقبل أي طلبات جديدة حتى إعادة الفتح',
@@ -479,7 +495,7 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
       socket.off('store:status_changed', onStoreStatus)
       leaveRooms([`store:${storeId}`])
     }
-  }, [storeId, loadActive, loadAllOrders, toast])
+  }, [storeId, loadActive, loadAllOrders, toast, pushActivity])
 
   // ---------- الأعمدة المشتقة ----------
   const newOrders = useMemo(() => activeOrders.filter((o) => o.status === 'placed'), [activeOrders])
@@ -510,6 +526,7 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
         description: `أُشعل رادار الكباتن (${Number(res.radarOffersSent ?? 0)} عرض) — زمن الطهي ${prepChoice} دقيقة`,
         duration: 7000,
       })
+      pushActivity('🔥', `قبلتم الطلب ${acceptOrder.orderNumber} — طهي ${prepChoice} دقيقة`)
       setAcceptOrder(null)
       await loadActive(storeId)
     } catch (e) {
@@ -525,6 +542,7 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
     try {
       await apiPost<{ order: OrderDTO }>(`/api/orders/${encodeURIComponent(rejectOrder.id)}/status`, { action: 'reject' })
       toast({ title: 'تم رفض الطلب', description: `${rejectOrder.orderNumber} أُلغي وأُبلغ الزبون`, variant: 'destructive' })
+      pushActivity('🚫', `رفضتم الطلب ${rejectOrder.orderNumber}`)
       setRejectOrder(null)
       await loadActive(storeId)
     } catch (e) {
@@ -543,6 +561,7 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
         description: `${o.orderNumber} — فُتح قفل الكابتن، بانتظار الاستلام`,
         duration: 6000,
       })
+      pushActivity('✅', `الطلب ${o.orderNumber} جاهز — فُتح قفل الاستلام`)
       await loadActive(storeId)
     } catch (e) {
       toast({ title: 'تعذر تحديث الحالة', description: errMsg(e), variant: 'destructive' })
@@ -785,6 +804,37 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
                 عرض طلبات <span className="font-bold text-[#F5D061]">{currentStore.emoji} {currentStore.name}</span> فقط — عزل كامل لكل متجر شريك
               </p>
             )}
+
+            {/* 📜 شريط سجل النشاط الحي */}
+            <AnimatePresence initial={false}>
+              {activity.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="mb-4 overflow-hidden"
+                >
+                  <div className="wasel-scroll flex items-center gap-2 overflow-x-auto rounded-2xl border border-[rgba(212,175,55,0.2)] bg-[#062319] px-3 py-2.5">
+                    <span className="shrink-0 rounded-lg bg-[rgba(212,175,55,0.12)] px-2 py-1 text-[10px] font-black text-[#F5D061]">
+                      📜 آخر الأحداث
+                    </span>
+                    {activity.map((a) => (
+                      <span
+                        key={a.id}
+                        className="flex shrink-0 items-center gap-1.5 rounded-full border border-[rgba(212,175,55,0.15)] bg-[#041710] px-3 py-1.5 text-[11px] font-semibold text-[#F8F5EE]"
+                      >
+                        <span>{a.emoji}</span>
+                        {a.text}
+                        <span className="ltr-nums font-money text-[9px] text-[#938E7E]">
+                          {new Date(a.at).toLocaleTimeString('ar-LY-u-nu-latn', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               {/* ---- عمود طلبات جديدة ---- */}
               <Column emoji="🔔" title="طلبات جديدة" count={newOrders.length} accent="#F5D061">

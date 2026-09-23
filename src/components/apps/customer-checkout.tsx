@@ -1,8 +1,8 @@
 'use client'
 
-// 💳 شاشة الدفع — هوية الزبون (وضع ضيوف) + عنوان + طريقة دفع + تأكيد نهائي
-import { useEffect, useState } from 'react'
-import { Banknote, Loader2 } from 'lucide-react'
+// 💳 شاشة الدفع — هوية الزبون (وضع ضيوف) + عنوان + طريقة دفع + كوبون خصم + تأكيد نهائي
+import { useEffect, useMemo, useState } from 'react'
+import { Banknote, Loader2, TicketPercent, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Ly } from '@/components/wasel/Badges'
 import { apiGet, apiPost } from '@/lib/wasel/api'
 import { DISTRICTS } from '@/lib/wasel/constants'
+import { computePromoDiscount, PROMOS } from '@/lib/wasel/promos'
 import { useWasel } from '@/lib/wasel/store'
 import { useToast } from '@/hooks/use-toast'
 import type { OrderDTO } from '@/lib/wasel/types'
@@ -49,8 +50,46 @@ export function CheckoutScreen({
   const [wallet, setWallet] = useState<WalletBrief | null>(null)
   const [walletLoading, setWalletLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [promoInput, setPromoInput] = useState('')
+  const [appliedPromo, setAppliedPromo] = useState<string | null>(null)
+  const [promoError, setPromoError] = useState<string | null>(null)
+  const [showPromos, setShowPromos] = useState(false)
 
   const subtotal = cart.reduce((n, i) => n + i.qty * i.unitPrice, 0)
+
+  // 🎟️ حساب الخصم لحظياً (الخادم يعيد التحقق عند التأكيد)
+  const promoPreview = useMemo(() => {
+    if (!appliedPromo) return null
+    const r = computePromoDiscount(appliedPromo, subtotal)
+    return r.ok ? r : null
+  }, [appliedPromo, subtotal])
+  const discount = promoPreview?.discount ?? 0
+  const payable = Math.max(0, subtotal - discount)
+
+  const applyPromo = (codeRaw: string) => {
+    const code = codeRaw.trim().toUpperCase()
+    if (!code) return
+    const r = computePromoDiscount(code, subtotal)
+    if (!r.ok) {
+      setPromoError(r.error)
+      return
+    }
+    setAppliedPromo(r.promo.code)
+    setPromoInput(r.promo.code)
+    setPromoError(null)
+    setShowPromos(false)
+    toast({
+      title: `🎟️ تم تطبيق ${r.promo.label}`,
+      description: `وفّرت ${r.discount.toFixed(2)} د.ل على هذا الطلب`,
+      className: 'border-[rgba(16,185,129,0.5)] bg-[#0A3324] text-[#10B981]',
+    })
+  }
+
+  const removePromo = () => {
+    setAppliedPromo(null)
+    setPromoInput('')
+    setPromoError(null)
+  }
 
   // جلب رصيد المحفظة تلقائياً عند إدخال رقم ليبي صالح (مع مهلة قصيرة)
   useEffect(() => {
@@ -92,6 +131,7 @@ export function CheckoutScreen({
   }
 
   const validate = (): string | null => {
+    if (wallet?.blocked) return 'رقم الهاتف محظور من الطلب في المنظومة — تواصل مع إدارة واصل نالوت لحل النزاع'
     if (!name.trim()) return 'الاسم الكامل مطلوب لتسليم الطلب'
     if (!isValidLibyanPhone(phone)) return 'رقم الهاتف يجب أن يبدأ بـ 091 أو 092 أو 093 أو 094 ويتكون من 10 أرقام'
     if (!address.trim()) return 'اكتب عنوان التوصيل بالتفصيل (أقرب علامة مميزة)'
@@ -116,6 +156,7 @@ export function CheckoutScreen({
         district,
         payment_method: payMethod,
         notes: notes.trim() || undefined,
+        promo_code: appliedPromo ?? undefined,
       })
       toast({
         title: '🔔 ringing في المطبخ!',
@@ -145,7 +186,14 @@ export function CheckoutScreen({
         <span className="text-xs font-bold text-[#938E7E]">
           {cart.length} صنف • رسوم الخدمة <span className="font-bold text-[#10B981]">0.00 د.ل</span>
         </span>
-        <Ly amount={subtotal} bold className="text-[#F5D061]" />
+        {discount > 0 ? (
+          <span className="flex items-center gap-2">
+            <Ly amount={subtotal} className="text-xs text-[#938E7E] line-through" />
+            <Ly amount={payable} bold className="text-[#F5D061]" />
+          </span>
+        ) : (
+          <Ly amount={subtotal} bold className="text-[#F5D061]" />
+        )}
       </div>
 
       <div className="space-y-4">
@@ -277,9 +325,12 @@ export function CheckoutScreen({
             </button>
           </div>
           {wallet?.blocked && (
-            <p className="mt-3 rounded-xl border border-[rgba(239,68,68,0.4)] bg-[rgba(239,68,68,0.08)] px-3 py-2.5 text-[11px] font-semibold leading-relaxed text-[#EF4444]">
-              🚫 رقمك محظور من استخدام المحفظة: {wallet.blockedReason ?? 'نزاع سابق غير محسوم'}
-            </p>
+            <div className="mt-3 rounded-xl border border-[rgba(239,68,68,0.45)] bg-[rgba(239,68,68,0.1)] px-4 py-3">
+              <p className="text-xs font-black text-[#EF4444]">🚫 هذا الرقم محظور من الطلب في منظومة واصل نالوت</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-[#F8F5EE]/70">
+                السبب: {wallet.blockedReason ?? 'نزاع سابق غير محسوم'} — لا يمكن إتمام طلبات جديدة (كاش أو محفظة) حتى تُحل المسألة مع إدارة واصل.
+              </p>
+            </div>
           )}
           {payMethod === 'wallet' && wallet && !wallet.blocked && wallet.balance < subtotal + 5 && (
             <p className="mt-3 rounded-xl border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.08)] px-3 py-2.5 text-[11px] font-semibold text-[#F59E0B]">
@@ -288,7 +339,102 @@ export function CheckoutScreen({
           )}
         </section>
 
-        {/* ملاحظات عامة */}
+        {/* 🎟️ كوبون الخصم */}
+        <section className="overflow-hidden rounded-2xl border border-[rgba(212,175,55,0.2)] bg-[#062319] p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h4 className="text-sm font-extrabold text-[#F5D061]">🎟️ كوبون خصم</h4>
+            <button
+              onClick={() => setShowPromos((v) => !v)}
+              className="flex min-h-[44px] items-center gap-1 rounded-lg px-2 text-[11px] font-bold text-[#10B981] transition hover:text-[#F5D061]"
+            >
+              <TicketPercent className="h-3.5 w-3.5" />
+              {showPromos ? 'إخفاء الكوبونات' : 'الكوبونات المتاحة'}
+            </button>
+          </div>
+
+          {appliedPromo && promoPreview ? (
+            <div className="flex items-center justify-between rounded-xl border border-dashed border-[rgba(16,185,129,0.5)] bg-[rgba(16,185,129,0.08)] px-3.5 py-3">
+              <div className="flex items-center gap-2.5">
+                <span className="text-xl">✅</span>
+                <div>
+                  <p className="text-xs font-extrabold text-[#10B981]" dir="ltr">
+                    {appliedPromo}
+                  </p>
+                  <p className="text-[10px] text-[#938E7E]">خصم مُطبّق — يتحمله الإطار مُحاسبياً</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Ly amount={-discount} bold className="text-sm text-[#10B981]" />
+                <button
+                  onClick={removePromo}
+                  aria-label="إزالة الكوبون"
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-[#938E7E] transition hover:bg-[rgba(239,68,68,0.12)] hover:text-[#EF4444]"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <Input
+                dir="ltr"
+                value={promoInput}
+                onChange={(e) => {
+                  setPromoInput(e.target.value.toUpperCase())
+                  setPromoError(null)
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && applyPromo(promoInput)}
+                placeholder="WASEL10"
+                maxLength={16}
+                className={`h-12 flex-1 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center font-money text-sm tracking-widest text-[#F8F5EE] placeholder:text-[#938E7E]/40 ${
+                  promoError ? 'border-[rgba(239,68,68,0.5)]' : ''
+                }`}
+              />
+              <Button
+                onClick={() => applyPromo(promoInput)}
+                variant="outline"
+                className="h-12 rounded-xl border-[rgba(212,175,55,0.45)] bg-[#041710] px-5 text-sm font-extrabold text-[#F5D061] transition hover:bg-[rgba(212,175,55,0.12)] hover:text-[#F5D061]"
+              >
+                تطبيق
+              </Button>
+            </div>
+          )}
+          {promoError && (
+            <p className="mt-2 text-[11px] font-semibold text-[#EF4444]">⚠️ {promoError}</p>
+          )}
+
+          {showPromos && (
+            <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
+              {PROMOS.map((p) => {
+                const eligible = subtotal >= p.minSubtotalLyd
+                return (
+                  <button
+                    key={p.code}
+                    onClick={() => eligible && applyPromo(p.code)}
+                    disabled={!eligible}
+                    className={`group relative rounded-xl border border-dashed p-3 text-right transition ${
+                      eligible
+                        ? 'border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.06)] hover:border-[rgba(212,175,55,0.8)] hover:bg-[rgba(212,175,55,0.12)]'
+                        : 'cursor-not-allowed border-[rgba(147,142,126,0.25)] bg-transparent opacity-50'
+                    }`}
+                  >
+                    <span className="absolute left-2.5 top-2.5 text-[9px] font-black tracking-widest text-[rgba(212,175,55,0.55)]" dir="ltr">
+                      {p.code}
+                    </span>
+                    <span className="block text-xl">{p.emoji}</span>
+                    <span className="mt-1 block text-[11px] font-extrabold text-[#F8F5EE]">{p.label}</span>
+                    <span className="mt-0.5 block text-[9.5px] leading-relaxed text-[#938E7E]">{p.description}</span>
+                    {!eligible && (
+                      <span className="mt-1 block text-[9px] font-bold text-[#F59E0B]">
+                        يتطلب {p.minSubtotalLyd.toFixed(0)} د.ل على الأقل
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </section>
         <section className="rounded-2xl border border-[rgba(212,175,55,0.2)] bg-[#062319] p-4">
           <label className="mb-1.5 block text-xs font-bold text-[#938E7E]" htmlFor="co-notes">
             ملاحظات عامة للطلب <span className="font-normal">(اختياري)</span>
@@ -309,7 +455,7 @@ export function CheckoutScreen({
       <div className="mt-6 pb-2">
         <Button
           onClick={submit}
-          disabled={submitting}
+          disabled={submitting || wallet?.blocked === true}
           className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-l from-[#D4AF37] to-[#F5D061] text-base font-extrabold text-[#041710] shadow-lg shadow-[rgba(212,175,55,0.3)] transition hover:scale-[1.01] disabled:cursor-wait disabled:opacity-70"
         >
           {submitting ? (
@@ -320,7 +466,17 @@ export function CheckoutScreen({
           ) : (
             <>
               <Banknote className="h-5 w-5" />
-              تأكيد الطلب نهائياً • <Ly amount={subtotal} className="text-[#041710]" /> + التوصيل
+              تأكيد الطلب نهائياً •
+              {discount > 0 ? (
+                <span className="flex items-center gap-1.5">
+                  <Ly amount={subtotal} className="text-sm line-through opacity-60" />
+                  <Ly amount={payable} className="text-[#041710]" /> + التوصيل
+                </span>
+              ) : (
+                <>
+                  <Ly amount={subtotal} className="text-[#041710]" /> + التوصيل
+                </>
+              )}
             </>
           )}
         </Button>

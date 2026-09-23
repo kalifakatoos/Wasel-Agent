@@ -3,9 +3,11 @@
 // 🌟 واصل نالوت — الهيكل الرئيسي وبوابة الأدوار الأربعة
 import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
+import { motion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { useWasel } from '@/lib/wasel/store'
 import { APP } from '@/lib/wasel/constants'
+import { PROMOS } from '@/lib/wasel/promos'
 import { apiGet } from '@/lib/wasel/api'
 import type { Role } from '@/lib/wasel/types'
 
@@ -109,7 +111,7 @@ export default function WaselMain() {
 
   // ============ بوابة الهبوط ============
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col bg-[#041710]">
       {/* الشريط العلوي */}
       <header className="sticky top-0 z-40 border-b border-[rgba(212,175,55,0.15)] bg-[#041710]/85 backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
@@ -138,7 +140,12 @@ export default function WaselMain() {
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-16 pt-8">
         {/* البطل — بصورة جبل نفوسة المولّدة */}
-        <section className="relative mb-10 overflow-hidden rounded-3xl border border-[rgba(212,175,55,0.25)] p-8 text-center gold-glow md:p-12">
+        <motion.section
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.55, ease: 'easeOut' }}
+          className="relative mb-10 overflow-hidden rounded-3xl border border-[rgba(212,175,55,0.25)] p-8 text-center gold-glow md:p-12"
+        >
           <div
             className="absolute inset-0 bg-cover bg-center"
             style={{ backgroundImage: 'url(/images/hero.png)' }}
@@ -181,8 +188,16 @@ export default function WaselMain() {
                 🛵 انضم كابتن
               </Button>
             </div>
+            {/* شريط الثقة المصغر */}
+            <div className="mt-7 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[11px] font-semibold text-[#938E7E]">
+              <span className="flex items-center gap-1.5">🔒 كود تسليم OTP رباعي</span>
+              <span className="hidden h-1 w-1 rounded-full bg-[#D4AF37] sm:block" />
+              <span className="flex items-center gap-1.5">⏱️ بقالة خلال 15-30 دقيقة</span>
+              <span className="hidden h-1 w-1 rounded-full bg-[#D4AF37] sm:block" />
+              <span className="flex items-center gap-1.5">🧾 فواتير رسمية وسندات قبض</span>
+            </div>
           </div>
-        </section>
+        </motion.section>
 
         {/* الأدوات الأربعة */}
         <section className="mb-10">
@@ -192,9 +207,12 @@ export default function WaselMain() {
             <span className="h-px flex-1 bg-gradient-to-r from-transparent to-[rgba(212,175,55,0.4)]" />
           </h3>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {PORTALS.map((p) => (
-              <button
+            {PORTALS.map((p, i) => (
+              <motion.button
                 key={p.role}
+                initial={{ opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 + i * 0.08, duration: 0.45, ease: 'easeOut' }}
                 onClick={() => setRole(p.role)}
                 className="group relative overflow-hidden rounded-2xl border border-[rgba(212,175,55,0.2)] bg-[#062319] p-5 text-right transition-all duration-300 hover:-translate-y-1 hover:border-[rgba(212,175,55,0.5)] hover:shadow-xl hover:shadow-[rgba(212,175,55,0.1)]"
               >
@@ -210,27 +228,66 @@ export default function WaselMain() {
                 <span className="absolute bottom-4 left-4 text-[#D4AF37] opacity-0 transition-all duration-300 group-hover:opacity-100">
                   ←
                 </span>
-              </button>
+              </motion.button>
+            ))}
+          </div>
+        </section>
+
+        {/* 🎟️ كوبونات الموسم */}
+        <section className="mb-10">
+          <h3 className="mb-5 flex items-center gap-3 text-lg font-extrabold text-[#F8F5EE]">
+            <span className="h-px flex-1 bg-gradient-to-l from-transparent to-[rgba(212,175,55,0.4)]" />
+            كوبونات واصل النشطة 🎟️
+            <span className="h-px flex-1 bg-gradient-to-r from-transparent to-[rgba(212,175,55,0.4)]" />
+          </h3>
+          <div className="grid gap-4 sm:grid-cols-3">
+            {PROMOS.map((promo, i) => (
+              <motion.div
+                key={promo.code}
+                initial={{ opacity: 0, scale: 0.96 }}
+                whileInView={{ opacity: 1, scale: 1 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.08, duration: 0.4 }}
+                className="relative overflow-hidden rounded-2xl border border-dashed border-[rgba(212,175,55,0.45)] bg-gradient-to-br from-[#062319] to-[#0A3324] p-5"
+              >
+                {/* ثقبة التذكرة الجانبية */}
+                <span className="absolute -right-3 top-1/2 h-6 w-6 -translate-y-1/2 rounded-full bg-[#041710]" aria-hidden="true" />
+                <span className="absolute -left-3 top-1/2 h-6 w-6 -translate-y-1/2 rounded-full bg-[#041710]" aria-hidden="true" />
+                <div className="flex items-start justify-between">
+                  <span className="text-3xl">{promo.emoji}</span>
+                  <span
+                    dir="ltr"
+                    className="ltr-nums rounded-lg border border-[rgba(212,175,55,0.4)] bg-[#041710] px-2.5 py-1 font-money text-xs font-bold tracking-widest text-[#F5D061]"
+                  >
+                    {promo.code}
+                  </span>
+                </div>
+                <p className="mt-3 text-sm font-extrabold text-[#F8F5EE]">{promo.label}</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-[#938E7E]">{promo.description}</p>
+              </motion.div>
             ))}
           </div>
         </section>
 
         {/* المؤشرات الحية */}
         <section className="mb-12 grid gap-4 sm:grid-cols-3">
-          <div className="rounded-2xl border border-[rgba(212,175,55,0.18)] bg-[#062319] p-5 text-center">
+          <div className="relative overflow-hidden rounded-2xl border border-[rgba(212,175,55,0.18)] bg-[#062319] p-5 text-center">
+            <span className="absolute right-0 top-0 h-full w-1 bg-gradient-to-b from-[#D4AF37] to-transparent" aria-hidden="true" />
             <p className="font-money text-3xl font-bold text-[#F5D061]">
               {health?.live ? `${health.live.ordersToday}` : '—'}
             </p>
             <p className="mt-1 text-xs font-semibold text-[#938E7E]">طلب اليوم في المنظومة</p>
           </div>
-          <div className="rounded-2xl border border-[rgba(212,175,55,0.18)] bg-[#062319] p-5 text-center">
+          <div className="relative overflow-hidden rounded-2xl border border-[rgba(212,175,55,0.18)] bg-[#062319] p-5 text-center">
+            <span className="absolute right-0 top-0 h-full w-1 bg-gradient-to-b from-[#10B981] to-transparent" aria-hidden="true" />
             <p className="font-money text-3xl font-bold text-[#10B981]">
               {health?.live ? health.live.gmvToday.toFixed(2) : '—.—'}
               <span className="ms-1 text-sm">د.ل</span>
             </p>
             <p className="mt-1 text-xs font-semibold text-[#938E7E]">حجم التداول اليومي GMV</p>
           </div>
-          <div className="rounded-2xl border border-[rgba(212,175,55,0.18)] bg-[#062319] p-5 text-center">
+          <div className="relative overflow-hidden rounded-2xl border border-[rgba(212,175,55,0.18)] bg-[#062319] p-5 text-center">
+            <span className="absolute right-0 top-0 h-full w-1 bg-gradient-to-b from-[#D4AF37] to-transparent" aria-hidden="true" />
             <p className="font-money text-3xl font-bold text-[#F5D061]">
               {health?.live ? health.live.onlineDrivers : '—'}
               <span className="ms-1 text-sm text-[#938E7E]">/ {health?.db.drivers ?? '—'}</span>
