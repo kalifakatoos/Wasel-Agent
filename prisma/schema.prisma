@@ -1,0 +1,170 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// منظومة واصل نالوت - Wasel Nalut Delivery Ecosystem
+// Single Source of Truth schema (SQLite / Prisma adaptation)
+// ============================================================
+
+/// المتاجر في نالوت (food / grocery / marketplace)
+model Store {
+  id              String   @id // slug مثل: qasr-nalut
+  name            String
+  vertical        String   @default("food") // 'food' | 'grocery' | 'marketplace'
+  district        String   @default("وسط نالوت")
+  latitude        Float
+  longitude       Float
+  rating          Float    @default(4.8)
+  isOpen          Boolean  @default(true)
+  baseDeliveryFee Float    @default(5.0)
+  emoji           String   @default("🏪")
+  tagline         String   @default("")
+  prepMinutes     Int      @default(20)
+  createdAt       DateTime @default(now())
+
+  products Product[]
+  orders   Order[]
+}
+
+/// المنتجات والأصناف
+model Product {
+  id            String  @id
+  storeId       String
+  title         String
+  description   String  @default("")
+  basePriceLyd  Float
+  emoji         String  @default("🍽️")
+  category      String  @default("عام")
+  isAvailable   Boolean @default(true)
+  stockQuantity Int     @default(100)
+  isFood        Boolean @default(true)
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+}
+
+/// الكباتن والأسطول
+model Driver {
+  id                String  @id
+  fullName          String
+  phone             String
+  vehicleType       String  @default("سيارة")
+  plateNumber       String  @default("")
+  status            String  @default("offline") // 'offline' | 'online' | 'busy'
+  currentLatitude   Float?
+  currentLongitude  Float?
+  rating            Float   @default(4.9)
+  activeOrdersCount Int     @default(0)
+  /// عهدة الكاش المتراكمة بحوزة الكابتن (د.ل)
+  custodyCash       Float   @default(0)
+  /// إجمالي أرباح أجور التوصيل المستحقة (د.ل)
+  earningsTotal     Float   @default(0)
+  /// إجمالي عدد التوصيلات المكتملة
+  tripsCompleted    Int     @default(0)
+  createdAt         DateTime @default(now())
+
+  orders Order[]
+}
+
+/// الطلبات ودورة الحياة الصارمة
+model Order {
+  id             String    @id
+  orderNumber    String    @unique // WSL-YYMMDD-XXXX
+  customerName   String
+  customerPhone  String
+  storeId        String
+  storeName      String
+  driverId       String?
+  driverName     String?
+  status         String    @default("placed") // placed | accepted | preparing | ready_for_pickup | out_for_delivery | delivered | cancelled | disputed
+  itemsJson      String // JSON: [{productId,title,qty,unitPrice,notes}]
+  subtotalLyd    Float
+  deliveryFeeLyd Float
+  serviceFeeLyd  Float     @default(0) // صفر على الزبون دائماً
+  discountLyd    Float     @default(0)
+  totalLyd       Float
+  deliveryAddress String
+  district       String    @default("وسط نالوت")
+  deliveryLat    Float
+  deliveryLng    Float
+  otpCode        String // كود التسليم الرباعي
+  paymentMethod  String    @default("cash") // 'cash' | 'wallet'
+  prepTimeMinutes Int      @default(20)
+  dispatchAt     DateTime?
+  readyAt        DateTime?
+  handoverAt     DateTime?
+  deliveredAt    DateTime?
+  notes          String    @default("")
+  disputeNote    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  store              Store                @relation(fields: [storeId], references: [id])
+  driver             Driver?              @relation(fields: [driverId], references: [id])
+  walletTransactions WalletTransaction[]
+}
+
+/// المحافظ المالية (شجرة حسابات مغلقة)
+model Wallet {
+  id            String  @id @default(cuid())
+  ownerId       String  @unique // phone للزبون، storeId للمتجر، driverId للكابتن، 'platform_revenue' / 'platform_escrow'
+  walletType    String // 'customer' | 'store' | 'driver_earnings' | 'platform_revenue' | 'platform_escrow'
+  balance       Float   @default(0)
+  lockedBalance Float   @default(0)
+  updatedAt     DateTime @updatedAt
+}
+
+/// دفتر القيود المزدوجة
+model WalletTransaction {
+  id           String   @id @default(cuid())
+  orderId      String?
+  fromWalletId String?
+  toWalletId   String?
+  amount       Float
+  type         String // order_placement | order_delivered | custody_collect | settlement | store_payout | dispute | platform_commission
+  narration    String
+  createdAt    DateTime @default(now())
+
+  order Order? @relation(fields: [orderId], references: [id])
+}
+
+/// محاضر الجرد اليومي Z
+model DailyAudit {
+  id              String    @id @default(cuid())
+  auditCode       String    @unique // Z-YYMMDD-NN
+  auditDate       DateTime
+  totalOrders     Int       @default(0)
+  gmvLyd          Float     @default(0)
+  cashCollectedLyd Float    @default(0)
+  merchantDuesLyd Float     @default(0)
+  captainDuesLyd  Float     @default(0)
+  platformNetLyd  Float     @default(0)
+  isClosed        Boolean   @default(false)
+  closedAt        DateTime?
+  notes           String    @default("")
+}
+
+/// سندات القبض والصرف الرسمية
+model Voucher {
+  id              String   @id @default(cuid())
+  voucherNumber   String   @unique // RV-... / DV-...
+  type            String // 'receipt' (سند قبض عهدة) | 'disbursement' (سند صرف متجر)
+  beneficiaryName String
+  beneficiaryRole String // driver | store
+  amountLyd       Float
+  orderId         String?
+  notes           String   @default("")
+  createdAt       DateTime @default(now())
+}
+
+/// أرقام الهواتف المحظورة (فض النزاعات no-show)
+model BlockedPhone {
+  phone    String   @id
+  reason   String   @default("")
+  blockedAt DateTime @default(now())
+}
