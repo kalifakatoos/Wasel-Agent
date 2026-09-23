@@ -6,6 +6,7 @@
 // ============================================================
 import type { ReactNode } from 'react'
 import type { DriverDTO, VoucherDTO } from '@/lib/wasel/types'
+import type { PromoDef } from '@/lib/wasel/promos'
 import { Ly } from '@/components/wasel/Badges'
 
 // ---------- أنواع حالة غرفة العمليات ----------
@@ -24,7 +25,7 @@ export interface FleetPos {
 export interface FeedEvent {
   id: string
   at: number
-  kind: 'status' | 'radar' | 'custody' | 'payout'
+  kind: 'status' | 'radar' | 'custody' | 'payout' | 'promo' | 'topup'
   text: string
   sub?: string
 }
@@ -44,7 +45,28 @@ export interface ResolveNoShowResult {
   storePayout: number
   captainFee: number
   captainPaid: boolean
+  captainVoucher: { voucherNumber: string; amountLyd: number } | null
   blockedPhone: string
+}
+
+/// كوبون من غرفة العمليات (GET /api/admin/promos)
+export interface PromoAdmin extends PromoDef {
+  isActive: boolean
+  usedCount: number
+  totalDiscountLyd: number
+  createdAt: string
+}
+
+/// كود شحن محفظة (GET /api/admin/topup-codes)
+export interface TopupCodeAdmin {
+  id: string
+  code: string
+  amountLyd: number
+  isActive: boolean
+  usedByPhone: string | null
+  usedAt: string | null
+  note: string
+  createdAt: string
 }
 
 /// نتيجة POST /api/drivers/{id}/settle

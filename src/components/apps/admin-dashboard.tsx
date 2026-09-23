@@ -10,11 +10,13 @@ import {
   Banknote,
   Building2,
   Coins,
+  Gift,
   HandCoins,
   PackageCheck,
   Radar,
   Smartphone,
   Store,
+  TicketPercent,
 } from 'lucide-react'
 import type { AccountingSummary } from '@/lib/wasel/types'
 import { CUSTODY_CAP_LYD } from '@/lib/wasel/constants'
@@ -25,6 +27,8 @@ const FEED_STYLE: Record<FeedEvent['kind'], { icon: ReactNode; color: string; bg
   radar: { icon: <Radar className="h-4 w-4" />, color: '#F5D061', bg: 'rgba(212,175,55,0.12)' },
   custody: { icon: <Banknote className="h-4 w-4" />, color: '#10B981', bg: 'rgba(16,185,129,0.12)' },
   payout: { icon: <Building2 className="h-4 w-4" />, color: '#F5D061', bg: 'rgba(212,175,55,0.12)' },
+  promo: { icon: <TicketPercent className="h-4 w-4" />, color: '#F5D061', bg: 'rgba(212,175,55,0.12)' },
+  topup: { icon: <Gift className="h-4 w-4" />, color: '#10B981', bg: 'rgba(16,185,129,0.12)' },
 }
 
 export default function DashboardTab({

@@ -53,11 +53,15 @@ export type PromoResult =
   | { ok: true; promo: PromoDef; discount: number }
   | { ok: false; error: string }
 
-/// التحقق الخادمي من الكوبون وحساب الخصم (لا نثق بالعميل أبداً)
-export function computePromoDiscount(codeRaw: string, subtotal: number): PromoResult {
+/// التحقق من الكوبون وحساب الخصم — القائمة الافتراضية الرسمية (النسخة الحية من الخادم تُمرَّر اختيارياً)
+export function computePromoDiscount(
+  codeRaw: string,
+  subtotal: number,
+  list: PromoDef[] = PROMOS,
+): PromoResult {
   const code = (codeRaw || '').trim().toUpperCase()
   if (!code) return { ok: false, error: 'أدخل كود الخصم أولاً' }
-  const promo = PROMOS.find((p) => p.code === code)
+  const promo = list.find((p) => p.code === code)
   if (!promo) return { ok: false, error: 'كود الخصم غير معروف' }
   if (subtotal < promo.minSubtotalLyd) {
     return {

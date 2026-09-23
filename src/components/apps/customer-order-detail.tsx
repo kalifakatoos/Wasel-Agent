@@ -70,10 +70,12 @@ function StarRow({
 export function OrderDetailScreen({
   orderId,
   onTrack,
+  onReorder,
   onBack,
 }: {
   orderId: string
   onTrack: (orderId: string) => void
+  onReorder: (order: OrderDTO) => void
   onBack: () => void
 }) {
   const phone = useWasel((s) => s.customerPhone)
@@ -167,6 +169,14 @@ export function OrderDetailScreen({
               className="mt-4 h-12 w-full rounded-xl bg-gradient-to-l from-[#D4AF37] to-[#F5D061] text-sm font-extrabold text-[#041710] shadow-lg shadow-[rgba(212,175,55,0.25)]"
             >
               📍 فتح التتبع الحي
+            </Button>
+          )}
+          {order.status === 'delivered' && (
+            <Button
+              onClick={() => onReorder(order)}
+              className="mt-4 h-12 w-full rounded-xl border border-[rgba(16,185,129,0.5)] bg-[rgba(16,185,129,0.1)] text-sm font-extrabold text-[#10B981] shadow-md shadow-[rgba(16,185,129,0.12)] transition hover:bg-[rgba(16,185,129,0.2)]"
+            >
+              🔁 إعادة طلب نفس الأصناف من {order.storeName}
             </Button>
           )}
         </div>

@@ -16,6 +16,9 @@ export async function POST(
   try {
     const { id } = await params
     const { driver_id } = await req.json()
+    if (!driver_id || typeof driver_id !== 'string') {
+      return NextResponse.json({ error: 'معرف الكابتن مطلوب' }, { status: 400 })
+    }
 
     const driver = await db.driver.findUnique({ where: { id: driver_id } })
     if (!driver) return NextResponse.json({ error: 'الكابتن غير موجود' }, { status: 404 })

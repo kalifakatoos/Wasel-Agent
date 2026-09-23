@@ -67,6 +67,14 @@ interface PayoutPayload {
   amount: number
   voucherNumber: string
 }
+interface PromoAppliedPayload {
+  orderNumber: string
+  storeId?: string
+  customerName?: string
+  promoCode: string
+  promoLabel?: string
+  discountLyd: number
+}
 
 const PREP_OPTIONS = [
   { minutes: 15, emoji: '⏱️', label: 'سريع', hint: 'المطبخ فاضي والطلب خفيف' },
@@ -459,6 +467,14 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
         duration: 9000,
       })
     }
+    const onPromoApplied = (p: PromoAppliedPayload) => {
+      pushActivity('🎟️', `كوبون ${p.promoLabel ?? p.promoCode} على طلب ${p.orderNumber} — واصل يتحمّل الخصم ${(p.discountLyd ?? 0).toFixed(2)} د.ل`)
+      toast({
+        title: '🎟️ كوبون خصم على طلب جديد',
+        description: `${p.orderNumber} — الخصم على حساب واصل، حصتكم 90% كاملة`,
+        duration: 6000,
+      })
+    }
     const onStoreStatus = (p: { storeId: string; isOpen: boolean; storeName: string }) => {
       if (p.storeId !== storeIdRef.current) return
       setStores((prev) => prev.map((s) => (s.id === p.storeId ? { ...s, isOpen: p.isOpen } : s)))
@@ -478,6 +494,7 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
     socket.on('order:assigned', onAssigned)
     socket.on('store:product_availability', onProductAvail)
     socket.on('store:payout_settled', onPayout)
+    socket.on('store:promo_applied', onPromoApplied)
     socket.on('store:status_changed', onStoreStatus)
     if (socket.connected) {
       setConnected(true)
@@ -492,6 +509,7 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
       socket.off('order:assigned', onAssigned)
       socket.off('store:product_availability', onProductAvail)
       socket.off('store:payout_settled', onPayout)
+      socket.off('store:promo_applied', onPromoApplied)
       socket.off('store:status_changed', onStoreStatus)
       leaveRooms([`store:${storeId}`])
     }

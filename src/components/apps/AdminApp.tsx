@@ -14,6 +14,7 @@ import {
   ScrollText,
   ShoppingCart,
   Store as StoreIcon,
+  TicketPercent,
   Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -30,13 +31,16 @@ import OrdersTab from './admin-orders'
 import CaptainsTab from './admin-captains'
 import ZAccountingTab from './admin-z'
 import StoresTab from './admin-stores'
+import MarketingTab, { type CreatePromoInput } from './admin-marketing'
 import type {
   AuditRecord,
   FeedEvent,
   FleetPos,
+  PromoAdmin,
   PayoutStoreResult,
   ResolveNoShowResult,
   SettleResult,
+  TopupCodeAdmin,
   VouchersPayload,
 } from './admin-shared'
 
@@ -159,6 +163,8 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
   const [summary, setSummary] = useState<AccountingSummary | null>(null)
   const [vouchersData, setVouchersData] = useState<VouchersPayload | null>(null)
   const [orders, setOrders] = useState<OrderDTO[]>([])
+  const [promos, setPromos] = useState<PromoAdmin[] | null>(null)
+  const [giftCodes, setGiftCodes] = useState<TopupCodeAdmin[] | null>(null)
   const [feed, setFeed] = useState<FeedEvent[]>([])
   const [positions, setPositions] = useState<Record<string, FleetPos>>({})
   const [live, setLive] = useState(false)
@@ -192,6 +198,8 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
       setSummary(null)
       setVouchersData(null)
       setOrders([])
+      setPromos(null)
+      setGiftCodes(null)
       setPositions({})
       setFeed([])
       setLive(false)
@@ -225,10 +233,12 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
     async (currentPin: string) => {
       if (!currentPin) return
       const headers = { 'x-admin-pin': currentPin }
-      const [sumRes, vouRes, ordRes] = await Promise.allSettled([
+      const [sumRes, vouRes, ordRes, promoRes, giftRes] = await Promise.allSettled([
         api<AccountingSummary>('/api/accounting/summary', { headers }),
         api<VouchersPayload>('/api/vouchers', { headers }),
         apiGet<{ orders: OrderDTO[] }>('/api/orders?status=all&limit=50'),
+        api<{ promos: PromoAdmin[] }>('/api/admin/promos', { headers }),
+        api<{ codes: TopupCodeAdmin[] }>('/api/admin/topup-codes', { headers }),
       ])
 
       for (const r of [sumRes, vouRes]) {
@@ -241,6 +251,8 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
       if (sumRes.status === 'fulfilled') setSummary(sumRes.value)
       if (vouRes.status === 'fulfilled') setVouchersData(vouRes.value)
       if (ordRes.status === 'fulfilled') setOrders(ordRes.value.orders ?? [])
+      if (promoRes.status === 'fulfilled') setPromos(promoRes.value.promos ?? [])
+      if (giftRes.status === 'fulfilled') setGiftCodes(giftRes.value.codes ?? [])
       setLastSync(Date.now())
     },
     [lockSession],
@@ -385,6 +397,24 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
       refreshMoney()
     }
 
+    const onPromoApplied = (d: { orderNumber?: string; promoCode?: string; promoLabel?: string; discountLyd?: number; customerName?: string }) => {
+      if (!d?.promoCode) return
+      pushEvent(
+        'promo',
+        `🎟️ استخدم الزبون ${d.customerName ?? ''} كوبون ${d.promoLabel ?? d.promoCode} على الطلب ${d.orderNumber ?? ''}`,
+        `وفّرنا له ${(d.discountLyd ?? 0).toFixed(2)} د.ل — على حساب المنصة`,
+      )
+    }
+
+    const onTopupRedeemed = (d: { phone?: string; code?: string; amountLyd?: number; balance?: number }) => {
+      if (!d?.code) return
+      pushEvent(
+        'topup',
+        `🎁 شُحنت محفظة ${d.phone ?? ''} بكود ${d.code}`,
+        `قيمة ${(d.amountLyd ?? 0).toFixed(2)} د.ل — الرصيد الآن ${(d.balance ?? 0).toFixed(2)} د.ل`,
+      )
+    }
+
     if (s.connected) onConnect()
     s.on('connect', onConnect)
     s.on('disconnect', onDisconnect)
@@ -395,6 +425,8 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
     s.on('order:radar_broadcast', onRadar)
     s.on('driver:custody_settled', onCustodySettled)
     s.on('store:payout_settled', onStorePayout)
+    s.on('store:promo_applied', onPromoApplied)
+    s.on('wallet:topup_redeemed', onTopupRedeemed)
 
     return () => {
       s.off('connect', onConnect)
@@ -406,6 +438,8 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
       s.off('order:radar_broadcast', onRadar)
       s.off('driver:custody_settled', onCustodySettled)
       s.off('store:payout_settled', onStorePayout)
+      s.off('store:promo_applied', onPromoApplied)
+      s.off('wallet:topup_redeemed', onTopupRedeemed)
       leaveRooms(['admin:fleet'])
     }
   }, [unlocked, pin, loadAll, pushEvent])
@@ -467,13 +501,102 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
         })
         toast({
           title: `فُضّ نزاع الطلب ${r.orderNumber}`,
-          description: `صرف للمتجر ${r.storePayout.toFixed(2)} د.ل • ${r.captainPaid ? `أُودعت أجرة الكابتن ${r.captainFee.toFixed(2)} د.ل لمحفظته` : 'لا يوجد كابتن مُعيَّن — لم تُصرف أي أجرة'} • حُظر الزبون ${r.blockedPhone}`,
+          description: `صرف للمتجر ${r.storePayout.toFixed(2)} د.ل • ${r.captainPaid ? `أُودعت أجرة الكابتن ${r.captainFee.toFixed(2)} د.ل${r.captainVoucher ? ` بسند ${r.captainVoucher.voucherNumber}` : ''}` : 'لا يوجد كابتن مُعيَّن — لم تُصرف أي أجرة'} • حُظر الزبون ${r.blockedPhone}`,
         })
         void loadAll(pin)
         return r
       } catch (e) {
         handleAdminError(e)
         return null
+      } finally {
+        setBusy(null)
+      }
+    },
+    [pin, loadAll, handleAdminError, toast],
+  )
+
+  // ---------- إجراءات التسويق (كوبونات + أكواد شحن) ----------
+  const createPromo = useCallback(
+    async (data: CreatePromoInput): Promise<boolean> => {
+      setBusy('promo:create')
+      try {
+        const r = await apiPost<{ ok: boolean }>('/api/admin/promos', { ...data, pin })
+        toast({ title: '🎟️ أُنشئ الكوبون', description: 'ظهر فوراً على الزبائن — بالتوفيق في الحملة' })
+        void loadAll(pin)
+        return !!r.ok
+      } catch (e) {
+        handleAdminError(e)
+        return false
+      } finally {
+        setBusy(null)
+      }
+    },
+    [pin, loadAll, handleAdminError, toast],
+  )
+
+  const togglePromo = useCallback(
+    async (code: string, next: boolean) => {
+      setBusy(`promo:${code}`)
+      try {
+        await api('/api/admin/promos', {
+          method: 'PATCH',
+          body: JSON.stringify({ pin, code, isActive: next }),
+        })
+        toast({
+          title: next ? '🟢 فُعّل الكوبون' : '🟠 عُطّل الكوبون',
+          description: `الكود ${code} ${next ? 'يظهر للزبائن الآن' : 'اختفى من الزبائن — الطلبات القائمة سليمة'}`,
+        })
+        void loadAll(pin)
+      } catch (e) {
+        handleAdminError(e)
+      } finally {
+        setBusy(null)
+      }
+    },
+    [pin, loadAll, handleAdminError, toast],
+  )
+
+  const generateCodes = useCallback(
+    async (amountLyd: number, count: number, note: string): Promise<boolean> => {
+      setBusy('gift:create')
+      try {
+        const r = await apiPost<{ ok: boolean; codes: string[] }>('/api/admin/topup-codes', {
+          pin,
+          amountLyd,
+          count,
+          note,
+        })
+        toast({
+          title: `🎁 وُلّد ${r.codes.length} كود شحن`,
+          description: `فئة ${amountLyd.toFixed(2)} د.ل — جهّزها للبيع في المقر`,
+        })
+        void loadAll(pin)
+        return true
+      } catch (e) {
+        handleAdminError(e)
+        return false
+      } finally {
+        setBusy(null)
+      }
+    },
+    [pin, loadAll, handleAdminError, toast],
+  )
+
+  const toggleGiftCode = useCallback(
+    async (code: string, next: boolean) => {
+      setBusy(`gift:${code}`)
+      try {
+        await api('/api/admin/topup-codes', {
+          method: 'PATCH',
+          body: JSON.stringify({ pin, code, isActive: next }),
+        })
+        toast({
+          title: next ? '🟢 فُعّل الكود' : '🟠 عُطّل الكود',
+          description: `الكود ${code} ${next ? 'صالح للاستخدام' : 'غير صالح حتى إعادة التفعيل'}`,
+        })
+        void loadAll(pin)
+      } catch (e) {
+        handleAdminError(e)
       } finally {
         setBusy(null)
       }
@@ -610,6 +733,7 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
                       { v: 'fleet', label: 'الأسطول الحي', icon: MapIcon },
                       { v: 'orders', label: 'الطلبات والنزاعات', icon: ShoppingCart },
                       { v: 'captains', label: 'الكباتن', icon: Users },
+                      { v: 'marketing', label: 'التسويق', icon: TicketPercent },
                       { v: 'accounting', label: 'المحاسبة Z', icon: ScrollText },
                       { v: 'stores', label: 'المتاجر', icon: StoreIcon },
                     ].map((t) => (
@@ -658,6 +782,20 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
                 <TabsContent value="stores">
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
                     <StoresTab stores={summary?.stores ?? []} busyKey={busy} onPayout={payoutStore} />
+                  </motion.div>
+                </TabsContent>
+
+                <TabsContent value="marketing">
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+                    <MarketingTab
+                      promos={promos}
+                      codes={giftCodes}
+                      busyKey={busy}
+                      onCreatePromo={createPromo}
+                      onTogglePromo={togglePromo}
+                      onGenerateCodes={generateCodes}
+                      onToggleCode={toggleGiftCode}
+                    />
                   </motion.div>
                 </TabsContent>
               </Tabs>

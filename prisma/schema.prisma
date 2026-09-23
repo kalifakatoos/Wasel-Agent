@@ -178,3 +178,33 @@ model BlockedPhone {
   reason   String   @default("")
   blockedAt DateTime @default(now())
 }
+
+/// كوبونات الخصم المُدارة من غرفة العمليات (الخصم تتحمله المنصة 100%)
+model PromoCode {
+  id               String   @id @default(cuid())
+  code             String   @unique // WASEL10 ...
+  label            String
+  description      String   @default("")
+  emoji            String   @default("🎟️")
+  kind             String   @default("percent") // 'percent' | 'flat'
+  percent          Float? // لنسبة الخصم
+  flatLyd          Float? // للخصم الثابت
+  maxDiscountLyd   Float? // سقف الخصم (اختياري)
+  minSubtotalLyd   Float    @default(0)
+  isActive         Boolean  @default(true)
+  usedCount        Int      @default(0)
+  totalDiscountLyd Float    @default(0)
+  createdAt        DateTime @default(now())
+}
+
+/// أكواد شحن المحفظة (بطاقات هدية مسبقة الدفع — بلا ربا ولا غرر)
+model TopupCode {
+  id          String    @id @default(cuid())
+  code        String    @unique // WASL-GIFT-XXXXXX
+  amountLyd   Float
+  isActive    Boolean   @default(true)
+  usedByPhone String?
+  usedAt      DateTime?
+  note        String    @default("")
+  createdAt   DateTime  @default(now())
+}

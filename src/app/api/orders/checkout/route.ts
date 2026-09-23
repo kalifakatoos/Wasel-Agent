@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { ensureSeed } from '@/lib/wasel/ensure-seed'
 import { computeDeliveryFee, haversineKm } from '@/lib/wasel/pricing'
-import { computePromoDiscount } from '@/lib/wasel/promos'
+import { computePromoDiscountDb, recordPromoUsage } from '@/lib/wasel/promos-server'
 import { emitRealtime, generateOtp, generateOrderNumber, isValidLibyanPhone, money } from '@/lib/wasel/server-utils'
 import { mapOrder } from '@/lib/wasel/orders-server'
 import { DISTRICTS } from '@/lib/wasel/constants'
@@ -92,13 +92,16 @@ export async function POST(req: NextRequest) {
     const serviceFee = 0 // صفر على الزبون دائماً (الامتثال الشرعي)
 
     // 🎟️ الخصم: تتحمله المنصة كاملاً — لا يمس حصة المتجر ولا أجرة الكابتن
+    // المصدر: جدول الكوبونات المُدار من غرفة العمليات (تحقق خادمي نهائي)
     let discount = 0
     let appliedPromo: string | null = null
+    let appliedPromoLabel: string | null = null
     if (promo_code && promo_code.trim()) {
-      const pr = computePromoDiscount(promo_code, subtotal)
+      const pr = await computePromoDiscountDb(promo_code, subtotal)
       if (!pr.ok) return NextResponse.json({ error: pr.error }, { status: 400 })
       discount = money(pr.discount)
       appliedPromo = pr.promo.code
+      appliedPromoLabel = pr.promo.label
     }
 
     const total = money(Math.max(0, subtotal + deliveryFee + serviceFee - discount))
@@ -175,6 +178,20 @@ export async function POST(req: NextRequest) {
       } catch {
         /* العمود موجود لكن تجاهل أي فشل غير متوقع */
       }
+      // 📊 إحصائيات الكوبون + بث حدث التسويق للمتجر وغرفة العمليات
+      await recordPromoUsage(appliedPromo, discount)
+      await emitRealtime([`store:${store.id}`, 'admin:fleet'], 'store:promo_applied', {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        storeId: store.id,
+        storeName: store.name,
+        customerName: dto.customerName,
+        promoCode: appliedPromo,
+        promoLabel: appliedPromoLabel,
+        discountLyd: discount,
+        subtotalLyd: subtotal,
+        createdAt: dto.createdAt,
+      })
     }
 
     // 🔔 رنين قوي في تابلت المطبخ (غرفة المتجر)

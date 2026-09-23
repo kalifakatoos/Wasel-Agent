@@ -20,10 +20,12 @@ const ACTIVE_STATUSES = new Set<OrderStatus>([
 export function OrdersScreen({
   onTrack,
   onOpenDetail,
+  onReorder,
   onBack,
 }: {
   onTrack: (orderId: string) => void
   onOpenDetail: (orderId: string) => void
+  onReorder: (order: OrderDTO) => void
   onBack: () => void
 }) {
   const phone = useWasel((s) => s.customerPhone)
@@ -193,14 +195,24 @@ export function OrdersScreen({
                     >
                       تتبع حي ←
                     </Button>
+                  ) : o.status === 'delivered' ? (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onReorder(o)
+                        }}
+                        className="h-12 rounded-xl border-[rgba(16,185,129,0.45)] bg-[rgba(16,185,129,0.1)] px-4 text-xs font-extrabold text-[#10B981] hover:bg-[rgba(16,185,129,0.2)]"
+                      >
+                        🔁 إعادة الطلب
+                      </Button>
+                      <span className="text-[10px] font-semibold text-[#D4AF37]">
+                        {o.storeStars ? 'الفاتورة ←' : 'التقييم ←'}
+                      </span>
+                    </div>
                   ) : (
-                    <span className="text-[10px] font-semibold text-[#D4AF37]">
-                      {o.status === 'delivered'
-                        ? o.storeStars
-                          ? `فاتورة الطلب ←`
-                          : 'عرض الفاتورة والتقييم ←'
-                        : '—'}
-                    </span>
+                    <span className="text-[10px] font-semibold text-[#D4AF37]">—</span>
                   )}
                 </div>
               </div>

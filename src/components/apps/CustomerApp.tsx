@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react'
 import { Compass, LogOut, ReceiptText, ShoppingBag, Wallet as WalletIcon, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useToast } from '@/hooks/use-toast'
 import { APP } from '@/lib/wasel/constants'
 import { useWasel } from '@/lib/wasel/store'
 import type { OrderDTO } from '@/lib/wasel/types'
@@ -24,9 +25,11 @@ export default function CustomerApp({ onExit }: { onExit: () => void }) {
   const [tab, setTab] = useState<Tab>('browse')
   const [activeStoreId, setActiveStoreId] = useState<string | null>(null)
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null)
+  const { toast } = useToast()
 
   const cartCount = useWasel((s) => s.cart.reduce((n, i) => n + i.qty, 0))
   const cartStoreId = useWasel((s) => s.cartStoreId)
+  const addToCart = useWasel((s) => s.addToCart)
 
   // تمرير لأعلى عند كل تنقل
   useEffect(() => {
@@ -51,6 +54,28 @@ export default function CustomerApp({ onExit }: { onExit: () => void }) {
   const onPlaced = (order: OrderDTO) => {
     setActiveOrderId(order.id)
     setTab('tracking')
+  }
+
+  // 🔁 إعادة طلب سابق: إرجاع أصنافه إلى السلة كما كانت
+  const reorder = (order: OrderDTO) => {
+    for (const it of order.items) {
+      addToCart(
+        { id: order.storeId, name: order.storeName },
+        {
+          productId: it.productId,
+          title: it.title,
+          qty: it.qty,
+          unitPrice: it.unitPrice,
+          emoji: order.storeEmoji ?? '🍽️',
+        },
+      )
+    }
+    toast({
+      title: '🔁 أُضيفت أصناف طلبك السابق إلى السلة',
+      description: `${order.storeEmoji ?? '🏪'} ${order.storeName} — ${order.items.length} أصناف بـ ${order.totalLyd.toFixed(2)} د.ل سابقاً`,
+      className: 'border-[rgba(212,175,55,0.5)] bg-[#0A3324] text-[#F5D061]',
+    })
+    setTab('cart')
   }
 
   // التبويب النشط في شريط التنقل السفلي
@@ -130,9 +155,9 @@ export default function CustomerApp({ onExit }: { onExit: () => void }) {
           <TrackingScreen orderId={activeOrderId} onBrowse={() => setTab('browse')} />
         )}
 
-        {tab === 'orders' && <OrdersScreen onTrack={trackOrder} onOpenDetail={openOrderDetail} onBack={() => setTab('browse')} />}
+        {tab === 'orders' && <OrdersScreen onTrack={trackOrder} onOpenDetail={openOrderDetail} onReorder={reorder} onBack={() => setTab('browse')} />}
         {tab === 'orderDetail' && activeOrderId && (
-          <OrderDetailScreen orderId={activeOrderId} onTrack={trackOrder} onBack={() => setTab('orders')} />
+          <OrderDetailScreen orderId={activeOrderId} onTrack={trackOrder} onReorder={reorder} onBack={() => setTab('orders')} />
         )}
 
         {tab === 'wallet' && <WalletScreen />}

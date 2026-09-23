@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Ly } from '@/components/wasel/Badges'
 import { apiGet, apiPost } from '@/lib/wasel/api'
 import { DISTRICTS } from '@/lib/wasel/constants'
-import { computePromoDiscount, PROMOS } from '@/lib/wasel/promos'
+import { computePromoDiscount, PROMOS, type PromoDef } from '@/lib/wasel/promos'
 import { useWasel } from '@/lib/wasel/store'
 import { useToast } from '@/hooks/use-toast'
 import type { OrderDTO } from '@/lib/wasel/types'
@@ -54,22 +54,38 @@ export function CheckoutScreen({
   const [appliedPromo, setAppliedPromo] = useState<string | null>(null)
   const [promoError, setPromoError] = useState<string | null>(null)
   const [showPromos, setShowPromos] = useState(false)
+  const [promoList, setPromoList] = useState<PromoDef[]>(PROMOS) // 🎟️ حية من غرفة العمليات
 
   const subtotal = cart.reduce((n, i) => n + i.qty * i.unitPrice, 0)
+
+  // جلب الكوبونات النشطة الحية (مع بقاء الافتراضية كحلاء احتياطي)
+  useEffect(() => {
+    let cancelled = false
+    apiGet<{ promos: PromoDef[] }>('/api/promos')
+      .then((d) => {
+        if (!cancelled && Array.isArray(d.promos) && d.promos.length > 0) setPromoList(d.promos)
+      })
+      .catch(() => {
+        /* تبقى الافتراضية */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // 🎟️ حساب الخصم لحظياً (الخادم يعيد التحقق عند التأكيد)
   const promoPreview = useMemo(() => {
     if (!appliedPromo) return null
-    const r = computePromoDiscount(appliedPromo, subtotal)
+    const r = computePromoDiscount(appliedPromo, subtotal, promoList)
     return r.ok ? r : null
-  }, [appliedPromo, subtotal])
+  }, [appliedPromo, subtotal, promoList])
   const discount = promoPreview?.discount ?? 0
   const payable = Math.max(0, subtotal - discount)
 
   const applyPromo = (codeRaw: string) => {
     const code = codeRaw.trim().toUpperCase()
     if (!code) return
-    const r = computePromoDiscount(code, subtotal)
+    const r = computePromoDiscount(code, subtotal, promoList)
     if (!r.ok) {
       setPromoError(r.error)
       return
@@ -405,7 +421,7 @@ export function CheckoutScreen({
 
           {showPromos && (
             <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
-              {PROMOS.map((p) => {
+              {promoList.map((p) => {
                 const eligible = subtotal >= p.minSubtotalLyd
                 return (
                   <button

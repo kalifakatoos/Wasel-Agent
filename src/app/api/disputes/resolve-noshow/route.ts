@@ -68,7 +68,9 @@ export async function POST(req: NextRequest) {
     })
 
     // 3) أجرة الكابتن كاملة (وليس هناك كاش محصل لأن التسليم لم يتم)
+    let captainVoucher: { voucherNumber: string; amountLyd: number } | null = null
     if (order.driverId) {
+      const drvRow = await db.driver.findUnique({ where: { id: order.driverId } })
       await db.driver.update({
         where: { id: order.driverId },
         data: {
@@ -82,10 +84,33 @@ export async function POST(req: NextRequest) {
         create: { ownerId: `driver:${order.driverId}`, walletType: 'driver_earnings', balance: deliveryFee },
         update: { balance: { increment: deliveryFee } },
       })
+      await db.walletTransaction.create({
+        data: {
+          orderId: order.id,
+          fromWalletId: `order:${order.id}`,
+          toWalletId: `driver:${order.driverId}`,
+          amount: deliveryFee,
+          type: 'dispute',
+          narration: `صرف أجرة توصيل الكابتن كاملة بعد نزاع no-show — ${order.orderNumber}`,
+        },
+      })
+      // 🧾 سند صرف رسمي مستقل لأجرة الكابتن (عقد إجارة عمل مُوثّق)
+      const captainSeq = (await db.voucher.count()) + 1
+      const cv = await db.voucher.create({
+        data: {
+          voucherNumber: generateVoucherNumber('disbursement', captainSeq),
+          type: 'disbursement',
+          beneficiaryName: drvRow?.fullName ?? order.driverId,
+          beneficiaryRole: 'driver',
+          amountLyd: deliveryFee,
+          orderId: order.id,
+          notes: `أجرة توصيل مستحقة بعد نزاع عدم استلام الزبون — ${order.orderNumber}`,
+        },
+      })
+      captainVoucher = { voucherNumber: cv.voucherNumber, amountLyd: cv.amountLyd }
       // الكابتن يعود متاحاً
-      const drv = await db.driver.findUnique({ where: { id: order.driverId } })
-      if (drv && drv.activeOrdersCount <= 0) {
-        await db.driver.update({ where: { id: drv.id }, data: { status: 'online' } })
+      if (drvRow && drvRow.activeOrdersCount <= 0) {
+        await db.driver.update({ where: { id: drvRow.id }, data: { status: 'online' } })
       }
     }
 
@@ -135,6 +160,7 @@ export async function POST(req: NextRequest) {
       storePayout,
       captainFee: deliveryFee,
       captainPaid: Boolean(order.driverId),
+      captainVoucher,
       blockedPhone: order.customerPhone,
     })
   } catch (e) {

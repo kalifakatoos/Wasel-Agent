@@ -7,7 +7,7 @@ import { motion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { useWasel } from '@/lib/wasel/store'
 import { APP } from '@/lib/wasel/constants'
-import { PROMOS } from '@/lib/wasel/promos'
+import { PROMOS, type PromoDef } from '@/lib/wasel/promos'
 import { apiGet } from '@/lib/wasel/api'
 import type { Role } from '@/lib/wasel/types'
 
@@ -89,6 +89,7 @@ interface HealthData {
 export default function WaselMain() {
   const { role, setRole } = useWasel()
   const [health, setHealth] = useState<HealthData | null>(null)
+  const [promos, setPromos] = useState<PromoDef[]>(PROMOS) // 🎟️ حية من غرفة العمليات
   const [booting, setBooting] = useState(true)
 
   useEffect(() => {
@@ -100,6 +101,16 @@ export default function WaselMain() {
     load()
     const t = setInterval(load, 15000)
     return () => clearInterval(t)
+  }, [])
+
+  useEffect(() => {
+    apiGet<{ promos: PromoDef[] }>('/api/promos')
+      .then((d) => {
+        if (Array.isArray(d.promos) && d.promos.length > 0) setPromos(d.promos)
+      })
+      .catch(() => {
+        /* تبقى الكوبونات الرسمية الافتراضية */
+      })
   }, [])
 
   if (booting) return <PortalLoader label="جارٍ تشغيل منظومة واصل نالوت…" />
@@ -241,7 +252,7 @@ export default function WaselMain() {
             <span className="h-px flex-1 bg-gradient-to-r from-transparent to-[rgba(212,175,55,0.4)]" />
           </h3>
           <div className="grid gap-4 sm:grid-cols-3">
-            {PROMOS.map((promo, i) => (
+            {promos.map((promo, i) => (
               <motion.div
                 key={promo.code}
                 initial={{ opacity: 0, scale: 0.96 }}
