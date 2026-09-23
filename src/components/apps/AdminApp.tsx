@@ -7,6 +7,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
+  Bell,
+  BellOff,
+  BellRing,
   Gauge,
   LogOut,
   Lock,
@@ -25,6 +28,14 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useToast } from '@/hooks/use-toast'
 import { api, apiGet, apiPost, ApiError } from '@/lib/wasel/api'
+import {
+  getDesktopNotifSupport,
+  readNotifPref,
+  requestDesktopNotifPermission,
+  showDesktopNotification,
+  writeNotifPref,
+  type DesktopNotifSupport,
+} from '@/lib/wasel/desktop-notifications'
 import { getSocket, joinRooms, leaveRooms } from '@/lib/wasel/socket'
 import { STATUS_LABELS } from '@/lib/wasel/constants'
 import type { AccountingSummary, DriverDTO, OrderDTO } from '@/lib/wasel/types'
@@ -181,7 +192,47 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [tab, setTab] = useState('dashboard')
 
-  // 🚨 تنبيه الفرص الضائعة اللحظي (كوبون رفض زبون أثناء الدفع)
+  // 🔔 إشعارات سطح المكتب (CRON-R9): تفضيل محلي + صلاحية المتصفح
+  // تُطلق عن الأحداث المالية الحية: الفرص الضائعة، العهدة، المستحقات
+  const [notifPref, setNotifPref] = useState(false)
+  const [notifPerm, setNotifPerm] = useState<DesktopNotifSupport>('unsupported')
+  useEffect(() => {
+    setNotifPref(readNotifPref())
+    setNotifPerm(getDesktopNotifSupport())
+  }, [])
+
+  /// إطلاق إشعار سطح مكتب إن كان التفضيل مفعّلاً والصلاحية ممنوحة
+  const notify = useCallback((title: string, body: string, tag?: string) => {
+    if (!notifPref || notifPerm !== 'granted') return
+    showDesktopNotification(title, body, tag)
+  }, [notifPref, notifPerm])
+
+  /// تفعيل/تعطيل الإشعارات من زر الرأس — طلب الصلاحية عند التفعيل
+  const toggleNotif = useCallback(async () => {
+    if (notifPref) {
+      writeNotifPref(false)
+      setNotifPref(false)
+      toast({ title: '🔕 أُوقفت إشعارات سطح المكتب', description: 'ستبقى التنبيهات داخل الغرفة فقط' })
+      return
+    }
+    const perm = getDesktopNotifSupport() === 'granted' ? 'granted' : await requestDesktopNotifPermission()
+    setNotifPerm(perm)
+    if (perm === 'granted') {
+      writeNotifPref(true)
+      setNotifPref(true)
+      showDesktopNotification(
+        '🔔 إشعارات واصل مفعّلة',
+        'ستصلك تنبيهات الفرص الضائعة والعهدة والمستحقات حتى والتطبيق بالخلفية',
+        'wasel-notif-test',
+      )
+      toast({ title: '🔔 تفعّلت الإشعارات', description: 'أُرسل إشعاراً تجريبياً الآن — جرّب تصغير النافذة' })
+    } else if (perm === 'denied') {
+      toast({ title: '🚫 المتصفح يمنع الإشعارات', description: 'اسمح بالإشعارات من إعدادات الموقع ثم أعد المحاولة' })
+    } else {
+      toast({ title: 'لم تُمنح الصلاحية', description: 'أعد المحاولة من زر الجرس' })
+    }
+  }, [notifPref, toast])
+
   const [promoAlert, setPromoAlert] = useState<{
     code: string | null
     label: string | null
@@ -405,6 +456,11 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
         `💰 توريد عهدة الكابتن ${d.driverName} بمبلغ ${(d.amount ?? 0).toFixed(2)} د.ل`,
         `سند قبض ${d.voucherNumber}`,
       )
+      notify(
+        `💰 تورّدت عهدة ${d.driverName}`,
+        `سند قبض ${d.voucherNumber} — ${(d.amount ?? 0).toFixed(2)} د.ل دخلت الخزينة`,
+        'wasel-custody',
+      )
       refreshMoney()
     }
 
@@ -414,6 +470,11 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
         'payout',
         `🏪 صرف مستحقات متجر «${d.storeName}» بمبلغ ${(d.amount ?? 0).toFixed(2)} د.ل`,
         `سند صرف ${d.voucherNumber}`,
+      )
+      notify(
+        `🏪 صُرفت مستحقات ${d.storeName}`,
+        `سند صرف ${d.voucherNumber} — ${(d.amount ?? 0).toFixed(2)} د.ل`,
+        'wasel-payout',
       )
       refreshMoney()
     }
@@ -486,6 +547,11 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
         `📉 فرصة ضائعة: زبون (${d?.phoneMasked ?? 'مجهول'}) حاول كوبون ${d?.code ?? '؟'} — ${REJECT_REASON_LABELS[reason] ?? reason}`,
         d?.lostLyd ? `خسارة تقديرية ${(d.lostLyd ?? 0).toFixed(2)} د.ل — قيمة سلة ${(d?.subtotalLyd ?? 0).toFixed(2)} د.ل` : undefined,
       )
+      notify(
+        `📉 فرصة ضائعة — كوبون ${d?.code ?? '؟'}`,
+        `${REJECT_REASON_LABELS[reason] ?? reason} • خسارة تقديرية ${(d?.lostLyd ?? 0).toFixed(2)} د.ل — سلة ${(d?.subtotalLyd ?? 0).toFixed(2)} د.ل`,
+        'wasel-promo-reject',
+      )
       if (promoAlertTimer.current) clearTimeout(promoAlertTimer.current)
       promoAlertTimer.current = setTimeout(() => setPromoAlert(null), 45000)
     }
@@ -523,7 +589,7 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
       s.off('wallet:promo_cashback', onPromoCashback)
       leaveRooms(['admin:fleet'])
     }
-  }, [unlocked, pin, loadAll, pushEvent])
+  }, [unlocked, pin, loadAll, pushEvent, notify])
 
   // ---------- الإجراءات المالية ----------
   const settleCustody = useCallback(
@@ -806,6 +872,31 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
                     )}
                   </span>
 
+                  {/* 🔔 إشعارات سطح المكتب (CRON-R9) */}
+                  {notifPerm !== 'unsupported' && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void toggleNotif()}
+                      title={notifPref ? 'إشعارات سطح المكتب مفعّلة — انقر للإيقاف' : 'فعّل إشعارات سطح المكتب'}
+                      aria-pressed={notifPref}
+                      className={`min-h-12 border-[rgba(212,175,55,0.35)] bg-transparent px-4 hover:bg-[#0A3324] ${
+                        notifPref
+                          ? 'border-[rgba(16,185,129,0.5)] text-[#10B981] hover:text-[#10B981]'
+                          : 'text-[#938E7E] hover:text-[#F5D061]'
+                      }`}
+                    >
+                      {notifPref ? (
+                        <BellRing className="h-4 w-4" />
+                      ) : notifPerm === 'denied' ? (
+                        <BellOff className="h-4 w-4" />
+                      ) : (
+                        <Bell className="h-4 w-4" />
+                      )}
+                      <span className="hidden sm:inline">{notifPref ? 'الإشعارات مفعّلة' : 'تفعيل الإشعارات'}</span>
+                    </Button>
+                  )}
+
                   <Button
                     type="button"
                     variant="outline"
@@ -952,7 +1043,7 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
 
                 <TabsContent value="stores">
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
-                    <StoresTab stores={summary?.stores ?? []} busyKey={busy} onPayout={payoutStore} />
+                    <StoresTab stores={summary?.stores ?? []} busyKey={busy} pin={pin} onPayout={payoutStore} />
                   </motion.div>
                 </TabsContent>
 
@@ -962,6 +1053,7 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
                       promos={promos}
                       codes={giftCodes}
                       busyKey={busy}
+                      pin={pin}
                       onCreatePromo={createPromo}
                       onTogglePromo={togglePromo}
                       onGenerateCodes={generateCodes}

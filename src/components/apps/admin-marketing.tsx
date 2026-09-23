@@ -5,9 +5,9 @@
 // إدارة كوبونات الخصم (إنشاء/تعطيل/إحصائيات) + أكواد شحن المحفظة
 // الخصم تتحمله المنصة كاملاً — دينار ليبي حصرياً
 // ============================================================
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Copy, Loader2, Plus, TicketPercent, Gift } from 'lucide-react'
+import { Copy, Loader2, Plus, TicketPercent, Gift, TrendingDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -31,8 +31,24 @@ import {
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 import { Ly } from '@/components/wasel/Badges'
+import { api } from '@/lib/wasel/api'
 import { fmtDateTime } from './admin-shared'
 import type { PromoAdmin, TopupCodeAdmin } from './admin-shared'
+
+/// 📉 تقرير الفرص الضائعة الشهري (CRON-R9)
+interface LostReport {
+  days: number
+  totals: { count: number; lostLyd: number }
+  series: { date: string; label: string; count: number; lostLyd: number }[]
+  codes: { code: string; count: number; lostLyd: number; topReason: string; lastAt: string | null }[]
+}
+
+const REJECT_REASON_LABELS_MK: Record<string, string> = {
+  exhausted: 'نفدت الحصة',
+  disabled: 'كوبون معطل',
+  min_not_met: 'تحت الحد الأدنى',
+  unknown: 'أخرى',
+}
 
 export interface CreatePromoInput {
   code: string
@@ -247,6 +263,7 @@ export default function MarketingTab({
   promos,
   codes,
   busyKey,
+  pin,
   onCreatePromo,
   onTogglePromo,
   onGenerateCodes,
@@ -255,12 +272,38 @@ export default function MarketingTab({
   promos: PromoAdmin[] | null
   codes: TopupCodeAdmin[] | null
   busyKey: string | null
+  /** درع الـ PIN — لجلب تقرير الفرص الضائعة من الخادم */
+  pin: string
   onCreatePromo: (data: CreatePromoInput) => Promise<boolean>
   onTogglePromo: (code: string, next: boolean) => Promise<void>
   onGenerateCodes: (amount: number, count: number, note: string) => Promise<boolean>
   onToggleCode: (code: string, next: boolean) => Promise<void>
 }) {
   const { toast } = useToast()
+
+  // ---------- 📉 تقرير الفرص الضائعة (30 يوماً) ----------
+  const [lostReport, setLostReport] = useState<LostReport | null>(null)
+  const [lostLoading, setLostLoading] = useState(true)
+  const [lostHover, setLostHover] = useState<number | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    api<LostReport>('/api/admin/promos/report?days=30', {
+      headers: { 'x-admin-pin': pin },
+    })
+      .then((r) => {
+        if (alive) setLostReport(r)
+      })
+      .catch(() => {
+        /* التقرير تحليلي — فشله لا يعطّل التاب */
+      })
+      .finally(() => {
+        if (alive) setLostLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [pin])
 
   // ---------- حالة نموذج إنشاء كوبون ----------
   const [createOpen, setCreateOpen] = useState(false)
@@ -313,6 +356,27 @@ export default function MarketingTab({
   const activePromos = promos?.filter((p) => p.isActive) ?? []
   const totalUsed = promos?.reduce((n, p) => n + p.usedCount, 0) ?? 0
   const totalDiscount = promos?.reduce((n, p) => n + p.totalDiscountLyd, 0) ?? 0
+
+  // 📉 هندسة سباركلاين الفرص الضائعة
+  const lostChart = useMemo(() => {
+    const series = lostReport?.series ?? []
+    if (series.length === 0) return null
+    const W = 640
+    const H = 120
+    const PAD_X = 10
+    const PAD_TOP = 12
+    const PAD_BOTTOM = 20
+    const maxLost = Math.max(...series.map((d) => d.lostLyd), 1)
+    const stepX = (W - PAD_X * 2) / Math.max(1, series.length - 1)
+    const pts = series.map((d, i) => ({
+      x: PAD_X + i * stepX,
+      y: PAD_TOP + (1 - d.lostLyd / maxLost) * (H - PAD_TOP - PAD_BOTTOM),
+      ...d,
+    }))
+    const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+    const areaPath = `${linePath} L${pts[pts.length - 1].x.toFixed(1)},${H - PAD_BOTTOM} L${pts[0].x.toFixed(1)},${H - PAD_BOTTOM} Z`
+    return { W, H, pts, linePath, areaPath }
+  }, [lostReport])
   const giftStats = (() => {
     const list = codes ?? []
     const used = list.filter((c) => c.usedByPhone).length
@@ -323,6 +387,180 @@ export default function MarketingTab({
 
   return (
     <div className="space-y-6">
+      {/* ======= 📉 تقرير الفرص الضائعة — آخر 30 يوماً (CRON-R9) ======= */}
+      <section className="rounded-2xl border border-[rgba(239,68,68,0.25)] bg-[#062319] p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-[rgba(239,68,68,0.3)] bg-[#041710] text-xl">
+              📉
+            </span>
+            <div>
+              <h3 className="text-sm font-extrabold text-[#F8F5EE]">تقرير الفرص الضائعة — آخر 30 يوماً</h3>
+              <p className="text-[10px] text-[#938E7E]">
+                زبائن حاولوا كوبوناً نفدت حصته أو قِطع شرطه — كل محاولة عميل محتمل انسحب
+              </p>
+            </div>
+          </div>
+          {lostReport && (
+            <div className="flex flex-wrap gap-2 text-[11px]">
+              <span className="rounded-full border border-[rgba(239,68,68,0.4)] bg-[rgba(239,68,68,0.08)] px-2.5 py-1 font-bold text-[#EF4444]">
+                <span className="ltr-nums font-money">{lostReport.totals.count}</span> محاولة مرفوضة
+              </span>
+              <span className="rounded-full border border-[rgba(212,175,55,0.4)] bg-[rgba(212,175,55,0.08)] px-2.5 py-1 font-bold text-[#F5D061]">
+                ≈ <Ly amount={lostReport.totals.lostLyd} bold /> قيمة مهدورة
+              </span>
+            </div>
+          )}
+        </div>
+
+        {lostLoading ? (
+          <div className="space-y-3" aria-label="جارٍ تحميل التقرير">
+            <span className="shimmer block h-20 w-full rounded-xl" />
+            <span className="shimmer block h-10 w-full rounded-xl" />
+          </div>
+        ) : !lostChart || lostReport?.totals.count === 0 ? (
+          <div className="flex min-h-20 items-center justify-center rounded-xl border border-dashed border-[rgba(16,185,129,0.3)] p-4 text-center text-xs text-[#10B981]">
+            ✨ لا فرص ضائعة في آخر 30 يوماً — حصص الكوبونات تغطي الطلب بشكل ممتاز
+          </div>
+        ) : (
+          <>
+            {/* 📈 السلسلة اليومية للقيمة المهدورة */}
+            <div className="relative">
+              <svg
+                viewBox={`0 0 ${lostChart.W} ${lostChart.H}`}
+                className="w-full"
+                role="img"
+                aria-label="قيمة الفرص الضائعة يومياً خلال ثلاثين يوماً"
+              >
+                <defs>
+                  <linearGradient id="lostSparkFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#EF4444" stopOpacity="0.3" />
+                    <stop offset="100%" stopColor="#EF4444" stopOpacity="0.02" />
+                  </linearGradient>
+                </defs>
+                {[0.5].map((f) => (
+                  <line
+                    key={f}
+                    x1="10"
+                    x2={lostChart.W - 10}
+                    y1={12 + f * (lostChart.H - 32)}
+                    y2={12 + f * (lostChart.H - 32)}
+                    stroke="rgba(212,175,55,0.08)"
+                    strokeDasharray="3 5"
+                  />
+                ))}
+                <path d={lostChart.areaPath} fill="url(#lostSparkFill)" />
+                <motion.path
+                  d={lostChart.linePath}
+                  fill="none"
+                  stroke="#EF4444"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  initial={{ pathLength: 0 }}
+                  animate={{ pathLength: 1 }}
+                  transition={{ duration: 1.2, ease: 'easeInOut' }}
+                />
+                {lostChart.pts.map((p, i) => (
+                  <g key={p.date}>
+                    {p.lostLyd > 0 && (
+                      <circle
+                        cx={p.x}
+                        cy={p.y}
+                        r={lostHover === i ? 4 : 2.6}
+                        fill={lostHover === i ? '#F5D061' : '#EF4444'}
+                        stroke="#041710"
+                        strokeWidth="1"
+                      />
+                    )}
+                    {/* منطقة لمس عريضة لكل يوم */}
+                    <rect
+                      x={p.x - (lostChart.W / Math.max(1, lostChart.pts.length - 1)) / 2}
+                      y={0}
+                      width={lostChart.W / Math.max(1, lostChart.pts.length - 1)}
+                      height={lostChart.H}
+                      fill="transparent"
+                      onMouseEnter={() => setLostHover(i)}
+                      onMouseLeave={() => setLostHover(null)}
+                    />
+                  </g>
+                ))}
+                {lostHover != null && (
+                  <line
+                    x1={lostChart.pts[lostHover].x}
+                    x2={lostChart.pts[lostHover].x}
+                    y1="4"
+                    y2={lostChart.H - 18}
+                    stroke="rgba(245,208,97,0.55)"
+                    strokeDasharray="3 3"
+                  />
+                )}
+              </svg>
+              {lostHover != null && lostChart.pts[lostHover] && (
+                <div
+                  className="chart-tip"
+                  style={{
+                    left: `${Math.min(Math.max((lostChart.pts[lostHover].x / lostChart.W) * 100, 12), 88)}%`,
+                    top: `${(lostChart.pts[lostHover].y / lostChart.H) * 100}%`,
+                  }}
+                >
+                  <p className="text-[10px] font-bold text-[#F5D061]">{lostChart.pts[lostHover].label}</p>
+                  <p className="ltr-nums font-money text-sm font-extrabold text-[#F8F5EE]">
+                    {lostChart.pts[lostHover].lostLyd.toFixed(2)} د.ل
+                  </p>
+                  <p className="text-[9px] text-[#938E7E]">
+                    <span className="ltr-nums font-money">{lostChart.pts[lostHover].count}</span> محاولة مرفوضة
+                  </p>
+                </div>
+              )}
+            </div>
+            <p className="mt-1.5 text-[10px] text-[#938E7E]">
+              مرّر المؤشر فوق الرسم لعرض تفاصيل كل يوم — القيم تقديرية للخصم الذي كان سيتحمله الكوبون
+            </p>
+
+            {/* تفصيل الأكواد */}
+            {lostReport && lostReport.codes.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {lostReport.codes.map((c, i) => (
+                  <motion.div
+                    key={c.code}
+                    initial={{ opacity: 0, x: 12 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.05 * i, duration: 0.3 }}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-[rgba(212,175,55,0.14)] bg-[#041710] px-3 py-2"
+                  >
+                    <span dir="ltr" className="font-money text-xs font-extrabold tracking-wider text-[#F5D061]">
+                      {c.code}
+                    </span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
+                        c.topReason === 'exhausted'
+                          ? 'border border-[rgba(239,68,68,0.4)] bg-[rgba(239,68,68,0.08)] text-[#EF4444]'
+                          : c.topReason === 'disabled'
+                            ? 'border border-[rgba(147,142,126,0.4)] bg-[rgba(147,142,126,0.08)] text-[#938E7E]'
+                            : 'border border-[rgba(245,158,11,0.4)] bg-[rgba(245,158,11,0.08)] text-[#F59E0B]'
+                      }`}
+                    >
+                      {REJECT_REASON_LABELS_MK[c.topReason] ?? c.topReason}
+                    </span>
+                    <span className="ms-auto text-[11px] text-[#C9C4B4]">
+                      <span className="ltr-nums font-money font-bold text-[#F8F5EE]">{c.count}</span> محاولات •
+                      هدر ≈{' '}
+                      <span className="ltr-nums font-money font-bold text-[#EF4444]">
+                        {c.lostLyd.toFixed(2)} د.ل
+                      </span>
+                    </span>
+                    {c.lastAt && (
+                      <span className="ltr-nums text-[9px] text-[#938E7E]">آخر محاولة {fmtDateTime(c.lastAt)}</span>
+                    )}
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
       {/* ======= كوبونات الخصم ======= */}
       <section className="rounded-2xl border border-[rgba(212,175,55,0.2)] bg-[#062319] p-4">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">

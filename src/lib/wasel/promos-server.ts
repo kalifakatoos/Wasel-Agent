@@ -316,6 +316,114 @@ export async function getPromoRejectStats(sinceMs: number): Promise<PromoRejectS
   }
 }
 
+// ============================================================
+// 📉 تقرير الفرص الضائعة الشهري (CRON-R9) — اتجاه 30 يوماً لكل كود
+//CreatedAt محفوظ كنص ISO — نجمّع بـ date() ونتصفّي زمنياً بالتقويم المحلي
+// ============================================================
+
+export interface LostReportDay {
+  date: string // ISO لمنتصف اليوم المحلي
+  label: string // اسم اليوم بالعربية
+  count: number
+  lostLyd: number
+}
+
+export interface LostReportCode {
+  code: string
+  count: number
+  lostLyd: number
+  topReason: string
+  lastAt: string | null
+}
+
+export interface LostMonthlyReport {
+  days: number
+  totals: { count: number; lostLyd: number }
+  series: LostReportDay[]
+  codes: LostReportCode[]
+}
+
+const DAY_LABELS_R9 = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
+
+/// تقرير الفرص الضائعة لآخر N يوم (افتراضي 30) — سلسلة يومية + تفصيل لكل كود
+export async function getMonthlyLostReport(days = 30): Promise<LostMonthlyReport> {
+  const n = Math.max(7, Math.min(90, Math.floor(days)))
+  try {
+    await ensureRejectsTable()
+    const rows = await db.$queryRawUnsafe<{ day: string; count: number; lostLyd: number }[]>(
+      `SELECT date("createdAt") AS day, COUNT(*) AS count, ROUND(COALESCE(SUM("wouldDiscountLyd"), 0), 2) AS lostLyd
+       FROM "PromoReject"
+       GROUP BY date("createdAt")`,
+    )
+    const perCode = await db.$queryRawUnsafe<{
+      code: string
+      count: number
+      lostLyd: number
+      topReason: string
+      lastAt: string | null
+    }[]>(
+      `SELECT "code" AS code,
+              COUNT(*) AS count,
+              ROUND(COALESCE(SUM("wouldDiscountLyd"), 0), 2) AS lostLyd,
+              (SELECT "reason" FROM "PromoReject" r2 WHERE r2."code" = r1."code"
+               GROUP BY "reason" ORDER BY COUNT(*) DESC LIMIT 1) AS topReason,
+              MAX("createdAt") AS lastAt
+       FROM "PromoReject" r1
+       GROUP BY "code"
+       ORDER BY lostLyd DESC
+       LIMIT 12`,
+    )
+
+    // نصفّي زمنياً في جافاسكربت (أدق من مقارنة نص ISO بعدد في SQLite)
+    const DAY_MS = 86_400_000
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+    const windowStartMs = todayStart.getTime() - (n - 1) * DAY_MS
+    const byDay = new Map<string, { count: number; lostLyd: number }>()
+    for (const r of rows ?? []) {
+      const t = new Date(`${String(r.day)}T00:00:00`).getTime()
+      if (!Number.isFinite(t) || t < windowStartMs) continue
+      byDay.set(String(r.day), { count: Number(r.count), lostLyd: Number(r.lostLyd) })
+    }
+
+    const series: LostReportDay[] = Array.from({ length: n }, (_, i) => {
+      const d = new Date(windowStartMs + i * DAY_MS)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      const hit = byDay.get(key)
+      return {
+        date: new Date(d.getTime() + 12 * 3600_000).toISOString(),
+        label: DAY_LABELS_R9[d.getDay()],
+        count: hit?.count ?? 0,
+        lostLyd: hit?.lostLyd ?? 0,
+      }
+    })
+
+    const inWindowCodes = (perCode ?? []).filter((c) => {
+      if (!c.lastAt) return false
+      const t = new Date(`${String(c.lastAt)}`).getTime()
+      return Number.isFinite(t) && t >= windowStartMs
+    })
+
+    return {
+      days: n,
+      totals: {
+        count: series.reduce((s, d) => s + d.count, 0),
+        lostLyd: money(series.reduce((s, d) => s + d.lostLyd, 0)),
+      },
+      series,
+      codes: inWindowCodes.map((c) => ({
+        code: String(c.code),
+        count: Number(c.count),
+        lostLyd: Number(c.lostLyd),
+        topReason: String(c.topReason),
+        lastAt: c.lastAt ? new Date(String(c.lastAt)).toISOString() : null,
+      })),
+    }
+  } catch {
+    return { days: n, totals: { count: 0, lostLyd: 0 }, series: [], codes: [] }
+  }
+}
+
 /// إجمالي كاش باك وُدع للمحافظ منذ لحظة معينة (من جدول الطلبات)
 export async function getCashbackStats(sinceMs: number): Promise<{ total: number; orders: number }> {
   try {

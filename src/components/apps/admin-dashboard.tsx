@@ -26,7 +26,7 @@ import {
 import type { AccountingSummary } from '@/lib/wasel/types'
 import { CUSTODY_CAP_LYD } from '@/lib/wasel/constants'
 import { NalutMap } from '@/components/wasel/NalutMap'
-import { KpiCard, SectionCard, EmptyHint, fmtClock, useAnimatedNumber, type FeedEvent, type FleetPos } from './admin-shared'
+import { KpiCard, SectionCard, EmptyHint, KpiGridSkeleton, fmtClock, useAnimatedNumber, type FeedEvent, type FleetPos } from './admin-shared'
 
 const FEED_STYLE: Record<FeedEvent['kind'], { icon: ReactNode; color: string; bg: string }> = {
   status: { icon: <Activity className="h-4 w-4" />, color: '#10B981', bg: 'rgba(16,185,129,0.12)' },
@@ -62,6 +62,8 @@ export default function DashboardTab({
 }) {
   const s = summary
   const custodyHot = (s?.captainCustodyLyd ?? 0) > CUSTODY_CAP_LYD
+  // 🎈 نقطة السباركلاين المُحوَّم عليها (تلميح تفاعلي بالتاريخ والقيمة)
+  const [sparkHover, setSparkHover] = useState<number | null>(null)
 
   // 🗺️ مواقع الكباتن الحية للخريطة المصغرة
   // البث اللحظي أولاً (تيليمتري الرادار) — وإن لم يصل بث بعد نستخدم آخر إحداثيات معروفة من قاعدة البيانات
@@ -98,8 +100,9 @@ export default function DashboardTab({
 
   return (
     <div className="space-y-4">
-      {/* شبكة المؤشرات — دخول متدرج لكل البطاقات */}
-      <div className="kpi-stagger grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+      {/* شبكة المؤشرات — دخول متدرج لكل البطاقات (هيكل عظمي متلألئ أثناء التحميل الأول) */}
+      {!s && <KpiGridSkeleton />}
+      <div className={s ? 'kpi-stagger grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4' : 'hidden'}>
         <KpiCard
           icon={<Coins className="h-5 w-5 text-[#F5D061]" />}
           label="إجمالي التداول GMV"
@@ -384,86 +387,128 @@ export default function DashboardTab({
                   </span>
                 )}
               </div>
-              <svg viewBox={`0 0 ${W} ${H}`} className="mt-3 w-full" role="img" aria-label="رسم بياني لتداول آخر سبعة أيام">
-                <defs>
-                  <linearGradient id="gmvSparkFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#10B981" stopOpacity="0.35" />
-                    <stop offset="100%" stopColor="#10B981" stopOpacity="0.02" />
-                  </linearGradient>
-                </defs>
-                {/* خطوط شبكة أفقية خافتة */}
-                {[0.25, 0.5, 0.75].map((f) => (
-                  <line
-                    key={f}
-                    x1={PAD_X}
-                    x2={W - PAD_X}
-                    y1={PAD_TOP + f * (H - PAD_TOP - PAD_BOTTOM)}
-                    y2={PAD_TOP + f * (H - PAD_TOP - PAD_BOTTOM)}
-                    stroke="rgba(212,175,55,0.08)"
-                    strokeDasharray="3 5"
-                  />
-                ))}
-                <motion.path
-                  d={areaPath}
-                  fill="url(#gmvSparkFill)"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.9, delay: 0.3 }}
-                />
-                <motion.path
-                  d={linePath}
-                  fill="none"
-                  stroke="#10B981"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  initial={{ pathLength: 0 }}
-                  animate={{ pathLength: 1 }}
-                  transition={{ duration: 1.4, ease: 'easeInOut' }}
-                />
-                {pts.map((p, i) => (
-                  <g key={p.date}>
-                    <circle
-                      cx={p.x}
-                      cy={p.y}
-                      r={i === pts.length - 1 ? 4 : 2.4}
-                      fill={i === pts.length - 1 ? '#F5D061' : '#10B981'}
-                      stroke={i === pts.length - 1 ? 'rgba(245,208,97,0.45)' : '#041710'}
-                      strokeWidth={i === pts.length - 1 ? 5 : 1}
+              <div className="relative mt-3">
+                <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="رسم بياني لتداول آخر سبعة أيام">
+                  <defs>
+                    <linearGradient id="gmvSparkFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#10B981" stopOpacity="0.35" />
+                      <stop offset="100%" stopColor="#10B981" stopOpacity="0.02" />
+                    </linearGradient>
+                  </defs>
+                  {/* خطوط شبكة أفقية خافتة */}
+                  {[0.25, 0.5, 0.75].map((f) => (
+                    <line
+                      key={f}
+                      x1={PAD_X}
+                      x2={W - PAD_X}
+                      y1={PAD_TOP + f * (H - PAD_TOP - PAD_BOTTOM)}
+                      y2={PAD_TOP + f * (H - PAD_TOP - PAD_BOTTOM)}
+                      stroke="rgba(212,175,55,0.08)"
+                      strokeDasharray="3 5"
                     />
-                    {i === pts.length - 1 && (
-                      <motion.circle
+                  ))}
+                  <motion.path
+                    d={areaPath}
+                    fill="url(#gmvSparkFill)"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.9, delay: 0.3 }}
+                  />
+                  <motion.path
+                    d={linePath}
+                    fill="none"
+                    stroke="#10B981"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    initial={{ pathLength: 0 }}
+                    animate={{ pathLength: 1 }}
+                    transition={{ duration: 1.4, ease: 'easeInOut' }}
+                  />
+                  {/* 🎈 خط تقاطع ذهبي عند التحويم */}
+                  {sparkHover != null && pts[sparkHover] && (
+                    <line
+                      x1={pts[sparkHover].x}
+                      x2={pts[sparkHover].x}
+                      y1={PAD_TOP}
+                      y2={H - PAD_BOTTOM}
+                      stroke="rgba(245,208,97,0.55)"
+                      strokeDasharray="3 3"
+                    />
+                  )}
+                  {pts.map((p, i) => (
+                    <g key={p.date}>
+                      <circle
                         cx={p.x}
                         cy={p.y}
-                        r="9"
-                        fill="none"
-                        stroke="#F5D061"
-                        strokeWidth="1"
-                        animate={{ r: [7, 13], opacity: [0.7, 0] }}
-                        transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }}
+                        r={i === pts.length - 1 ? 4 : sparkHover === i ? 4 : 2.4}
+                        fill={i === pts.length - 1 || sparkHover === i ? '#F5D061' : '#10B981'}
+                        stroke={i === pts.length - 1 ? 'rgba(245,208,97,0.45)' : '#041710'}
+                        strokeWidth={i === pts.length - 1 ? 5 : 1}
                       />
-                    )}
-                  </g>
-                ))}
-                {/* تسميات أيام أول وأوسط وآخر */}
-                {[0, Math.floor((pts.length - 1) / 2), pts.length - 1].map((i) => (
-                  <text
-                    key={`lbl-${i}`}
-                    x={pts[i].x}
-                    y={H - 6}
-                    textAnchor={i === 0 ? 'start' : i === pts.length - 1 ? 'end' : 'middle'}
-                    fontSize="9"
-                    fontWeight={i === pts.length - 1 ? '800' : '600'}
-                    fill={i === pts.length - 1 ? '#F5D061' : '#938E7E'}
+                      {i === pts.length - 1 && (
+                        <motion.circle
+                          cx={p.x}
+                          cy={p.y}
+                          r="9"
+                          fill="none"
+                          stroke="#F5D061"
+                          strokeWidth="1"
+                          animate={{ r: [7, 13], opacity: [0.7, 0] }}
+                          transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }}
+                        />
+                      )}
+                      {/* منطقة لمس عريضة لكل يوم — تلميح حي بالتاريخ والقيمة */}
+                      <rect
+                        x={p.x - stepX / 2}
+                        y={0}
+                        width={stepX}
+                        height={H}
+                        fill="transparent"
+                        style={{ cursor: 'crosshair' }}
+                        onMouseEnter={() => setSparkHover(i)}
+                        onMouseLeave={() => setSparkHover(null)}
+                      />
+                    </g>
+                  ))}
+                  {/* تسميات أيام أول وأوسط وآخر */}
+                  {[0, Math.floor((pts.length - 1) / 2), pts.length - 1].map((i) => (
+                    <text
+                      key={`lbl-${i}`}
+                      x={pts[i].x}
+                      y={H - 6}
+                      textAnchor={i === 0 ? 'start' : i === pts.length - 1 ? 'end' : 'middle'}
+                      fontSize="9"
+                      fontWeight={i === pts.length - 1 ? '800' : '600'}
+                      fill={i === pts.length - 1 ? '#F5D061' : '#938E7E'}
+                    >
+                      {i === pts.length - 1 ? 'اليوم' : trend[i].label}
+                    </text>
+                  ))}
+                </svg>
+                {/* 🎈 فقاعة التلميح — التاريخ والقيمة وعدد الطلبات (مُقيَّدة داخل البطاقة) */}
+                {sparkHover != null && pts[sparkHover] && (
+                  <div
+                    className="chart-tip"
+                    style={{
+                      left: `${Math.min(Math.max((pts[sparkHover].x / W) * 100, 14), 86)}%`,
+                      top: `${(pts[sparkHover].y / H) * 100}%`,
+                    }}
                   >
-                    {i === pts.length - 1 ? 'اليوم' : trend[i].label}
-                  </text>
-                ))}
-              </svg>
+                    <p className="text-[10px] font-bold text-[#F5D061]">{pts[sparkHover].label}</p>
+                    <p className="ltr-nums font-money text-sm font-extrabold text-[#F8F5EE]">
+                      {pts[sparkHover].gmvLyd.toFixed(2)} د.ل
+                    </p>
+                    <p className="text-[9px] text-[#938E7E]">
+                      <span className="ltr-nums font-money">{pts[sparkHover].orders}</span> طلبات مسلّمة
+                    </p>
+                  </div>
+                )}
+              </div>
               <p className="mt-1.5 text-[10px] leading-relaxed text-[#938E7E]">
                 أفضل يوم: <span className="font-bold text-[#F5D061]">{bestDay.label}</span> بـ{' '}
                 <span className="ltr-nums font-money font-bold text-[#F8F5EE]">{bestDay.gmvLyd.toFixed(2)}</span> د.ل
-                {' '}• نقطة ذهبية نابضة = اليوم الحي
+                {' '}• نقطة ذهبية نابضة = اليوم الحي • مرّر فوق الرسم لتفاصيل كل يوم
               </p>
             </div>
           )

@@ -217,6 +217,33 @@ export function KpiCard({
   )
 }
 
+/// هيكل عظمي متلألئ لبطاقة KPI (تحميل أول قبل وصول الملخص)
+export function KpiCardSkeleton() {
+  return (
+    <div className="rounded-2xl border border-[rgba(212,175,55,0.16)] bg-[#062319] p-4" aria-hidden="true">
+      <div className="flex items-center gap-3">
+        <span className="shimmer h-10 w-10 shrink-0 rounded-xl" />
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <span className="shimmer block h-3 w-3/4 rounded-full" />
+          <span className="shimmer block h-2 w-1/2 rounded-full" />
+        </div>
+      </div>
+      <span className="shimmer mt-4 block h-6 w-2/5 rounded-lg" />
+    </div>
+  )
+}
+
+/// شبكة هياكل عظمية جاهزة لشبكة المؤشرات (8 بطاقات)
+export function KpiGridSkeleton() {
+  return (
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+      {Array.from({ length: 8 }, (_, i) => (
+        <KpiCardSkeleton key={i} />
+      ))}
+    </div>
+  )
+}
+
 /// بطاقة قسم بعنوان ذهبي
 export function SectionCard({
   title,
