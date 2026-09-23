@@ -41,6 +41,26 @@ export async function GET(req: NextRequest) {
     const captainCustody = money(drivers.reduce((s, d) => s + d.custodyCash, 0))
     const captainDues = money(drivers.reduce((s, d) => s + d.earningsTotal, 0))
 
+    // 🎟️ تحليلات الكوبونات اليومية (الخصم تتحمله المنصة 100%)
+    const promoDiscountLyd = money(
+      todayOrders.filter((o) => o.discountLyd > 0).reduce((s, o) => s + o.discountLyd, 0),
+    )
+    const promoOrders = todayOrders.filter((o) => o.discountLyd > 0).length
+    let promoBreakdown: { code: string; uses: number; discountLyd: number }[] = []
+    try {
+      promoBreakdown = (
+        await db.$queryRawUnsafe<{ code: string; uses: number; discountLyd: number }[]>(
+          `SELECT "promoCode" AS code, COUNT(*) AS uses, ROUND(SUM("discountLyd"), 2) AS discountLyd
+           FROM "Order"
+           WHERE "createdAt" >= ? AND "discountLyd" > 0 AND "promoCode" IS NOT NULL
+           GROUP BY "promoCode" ORDER BY discountLyd DESC`,
+          todayStart.toISOString(),
+        )
+      ).map((r) => ({ code: String(r.code), uses: Number(r.uses), discountLyd: Number(r.discountLyd) }))
+    } catch {
+      promoBreakdown = []
+    }
+
     const storeDues = stores.map((s) => {
       const deliveredOrders = s.orders.filter((o) => o.deliveredAt && o.deliveredAt >= todayStart)
       const dues = money(deliveredOrders.reduce((acc, o) => acc + o.subtotalLyd * 0.9, 0))
@@ -71,6 +91,10 @@ export async function GET(req: NextRequest) {
       dispatchAssigned: todayOrders.filter(
         (o) => ['accepted', 'preparing', 'ready_for_pickup', 'out_for_delivery', 'delivered'].includes(o.status) && o.driverId,
       ).length,
+      // 🎟️ تحليلات الكوبونات
+      promoDiscountLyd,
+      promoOrders,
+      promoBreakdown,
       stores: storeDues,
       drivers: drivers.map((d) => ({ ...d, status: d.status as DriverDTO['status'] })),
       lastAudit: lastAudit

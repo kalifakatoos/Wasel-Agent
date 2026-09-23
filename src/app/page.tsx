@@ -251,7 +251,7 @@ export default function WaselMain() {
             كوبونات واصل النشطة 🎟️
             <span className="h-px flex-1 bg-gradient-to-r from-transparent to-[rgba(212,175,55,0.4)]" />
           </h3>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {promos.map((promo, i) => (
               <motion.div
                 key={promo.code}

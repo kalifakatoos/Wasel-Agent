@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { emitRealtime } from '@/lib/wasel/server-utils'
 import { dispatchRadar, mapOrder } from '@/lib/wasel/orders-server'
+import { notifyCustomer, orderNotifyText } from '@/lib/wasel/notifications-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,6 +42,19 @@ export async function POST(
         'order:status_changed',
         { orderId: id, status: 'preparing', orderNumber: order.orderNumber, prepMinutes: prep },
       )
+      // 🔔 إشعار الزبون: المطبخ بدأ التحضير
+      const prepText = orderNotifyText('preparing', order)
+      if (prepText) {
+        await notifyCustomer(order.customerPhone, {
+          id: `order:${id}:preparing`,
+          kind: 'order',
+          title: prepText.title,
+          body: prepText.body,
+          orderId: id,
+          orderNumber: order.orderNumber,
+          storeEmoji: order.store.emoji,
+        })
+      }
       // 🛵 إشعال رادار التوزيع (خوارزمية المطابقة الثنائية) بعد معرفة زمن الطهي
       const offered = await dispatchRadar(id)
       return NextResponse.json({ order: mapOrder(updated, updated.store), radarOffersSent: offered })
@@ -60,6 +74,19 @@ export async function POST(
         'order:status_changed',
         { orderId: id, status: 'ready_for_pickup', orderNumber: order.orderNumber },
       )
+      // 🔔 إشعار الزبون: وجبتك جاهزة
+      const readyText = orderNotifyText('ready_for_pickup', order)
+      if (readyText) {
+        await notifyCustomer(order.customerPhone, {
+          id: `order:${id}:ready_for_pickup`,
+          kind: 'order',
+          title: readyText.title,
+          body: readyText.body,
+          orderId: id,
+          orderNumber: order.orderNumber,
+          storeEmoji: order.store.emoji,
+        })
+      }
       // إن لم يُعيَّن كابتن بعد → أعد إشعال الرادار فوراً (الوجبة تبرد!)
       await dispatchRadar(id)
       return NextResponse.json({ order: mapOrder(updated, updated.store) })
@@ -77,6 +104,19 @@ export async function POST(
       await emitRealtime([`order:${id}`, 'admin:fleet'], 'order:status_changed', {
         orderId: id, status: 'cancelled', orderNumber: order.orderNumber,
       })
+      // 🔔 إشعار الزبون: أُلغي الطلب
+      const cancelText = orderNotifyText('cancelled', order)
+      if (cancelText) {
+        await notifyCustomer(order.customerPhone, {
+          id: `order:${id}:cancelled`,
+          kind: 'order',
+          title: cancelText.title,
+          body: cancelText.body,
+          orderId: id,
+          orderNumber: order.orderNumber,
+          storeEmoji: order.store.emoji,
+        })
+      }
       return NextResponse.json({ order: mapOrder(updated, updated.store) })
     }
 

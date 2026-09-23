@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { emitRealtime } from '@/lib/wasel/server-utils'
 import { mapOrder } from '@/lib/wasel/orders-server'
+import { notifyCustomer, orderNotifyText } from '@/lib/wasel/notifications-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,6 +49,20 @@ export async function POST(
       'order:status_changed',
       { orderId: id, status: 'out_for_delivery', orderNumber: order.orderNumber },
     )
+
+    // 🔔 إشعار الزبون: الكابتن في الطريق إليك
+    const outText = orderNotifyText('out_for_delivery', order)
+    if (outText) {
+      await notifyCustomer(order.customerPhone, {
+        id: `order:${id}:out_for_delivery`,
+        kind: 'order',
+        title: outText.title,
+        body: outText.body,
+        orderId: id,
+        orderNumber: order.orderNumber,
+        storeEmoji: order.store.emoji,
+      })
+    }
 
     return NextResponse.json({ order: mapOrder(updated, updated.store) })
   } catch (e) {

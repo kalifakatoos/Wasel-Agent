@@ -18,6 +18,7 @@ import { StoreScreen } from './customer-store'
 import { TrackingScreen } from './customer-tracking'
 import { WalletScreen } from './customer-wallet'
 import { OrderDetailScreen } from './customer-order-detail'
+import { CustomerNotifications } from './customer-notifications'
 
 type Tab = 'browse' | 'store' | 'cart' | 'checkout' | 'tracking' | 'orders' | 'wallet' | 'orderDetail'
 
@@ -103,6 +104,8 @@ export default function CustomerApp({ onExit }: { onExit: () => void }) {
             </span>
           </button>
           <div className="flex shrink-0 items-center gap-2">
+            {/* 🔔 الإشعارات (صندوق وارد لحظي) */}
+            <CustomerNotifications onTrackOrder={trackOrder} />
             {/* السلة */}
             <button
               onClick={() => setTab('cart')}

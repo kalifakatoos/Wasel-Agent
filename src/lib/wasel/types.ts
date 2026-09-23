@@ -151,6 +151,10 @@ export interface AccountingSummary {
   /// 🛵 مؤشرات نجاح التوزيع: طلبات قبلها المتجر (مؤهلة للتوزيع) ووُجّه لها كابتن
   dispatchEligible: number
   dispatchAssigned: number
+  /// 🎟️ تحليلات الكوبونات اليومية (الخصم تتحمله المنصة)
+  promoDiscountLyd: number
+  promoOrders: number
+  promoBreakdown: { code: string; uses: number; discountLyd: number }[]
   stores: { id: string; name: string; emoji: string; dues: number; payoutPaid: number }[]
   drivers: DriverDTO[]
   lastAudit: { auditCode: string; auditDate: string; gmvLyd: number; cashCollectedLyd: number; isClosed: boolean; closedAt: string | null } | null
@@ -164,6 +168,22 @@ export interface CartItem {
   unitPrice: number
   emoji: string
   notes?: string
+}
+
+/// إشعار الزبون داخل التطبيق (صندوق الوارد)
+export interface WaselNotification {
+  /// مفتاح منع التكرار: order:{id}:{status} | gift:{id} | wallet:{ref}
+  id: string
+  kind: 'order' | 'wallet' | 'gift'
+  title: string
+  body: string
+  orderId?: string
+  orderNumber?: string
+  storeEmoji?: string
+  codes?: string[]
+  amountLyd?: number
+  at: string
+  read: boolean
 }
 
 /// حالة توصيل الكابتن الرباعية

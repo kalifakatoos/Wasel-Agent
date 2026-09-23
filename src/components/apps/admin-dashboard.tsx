@@ -151,6 +151,52 @@ export default function DashboardTab({
             </div>
           )
         })()}
+        {/* 🎟️ بطاقة تحليلات الكوبونات اليومية (الخصم تتحمله المنصة) */}
+        {(() => {
+          const discount = s?.promoDiscountLyd ?? 0
+          const orders = s?.promoOrders ?? 0
+          const breakdown = (s?.promoBreakdown ?? []).slice(0, 3)
+          const avg = orders > 0 ? Math.round((discount / orders) * 100) / 100 : 0
+          return (
+            <div className="relative overflow-hidden rounded-2xl border border-[rgba(212,175,55,0.35)] bg-[rgba(212,175,55,0.06)] p-4">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#041710]">
+                    <TicketPercent className="h-5 w-5 text-[#F5D061]" />
+                  </span>
+                  <div>
+                    <p className="text-[11px] font-bold text-[#938E7E]">كوبونات اليوم (تحمّلتها المنصة)</p>
+                    <p className="ltr-nums font-money text-xl font-bold text-[#F5D061]">
+                      {discount.toFixed(2)} <span className="text-xs">د.ل</span>
+                    </p>
+                  </div>
+                </div>
+                <span className="ltr-nums font-money text-[11px] font-bold text-[#F8F5EE]">
+                  {orders} طلب
+                </span>
+              </div>
+              {breakdown.length > 0 && (
+                <ul className="mt-3 space-y-1.5">
+                  {breakdown.map((p) => (
+                    <li key={p.code} className="flex items-center justify-between rounded-lg bg-[#041710] px-2.5 py-1.5">
+                      <span dir="ltr" className="ltr-nums font-money text-[11px] font-bold tracking-wider text-[#F5D061]">
+                        {p.code}
+                      </span>
+                      <span className="ltr-nums font-money text-[11px] font-semibold text-[#10B981]">
+                        {p.uses}× • {p.discountLyd.toFixed(2)} د.ل
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-2 text-[10px] leading-relaxed text-[#938E7E]">
+                {orders === 0
+                  ? 'لا كوبونات مستخدمة اليوم — فكّر بحملة تشويقية مسائية'
+                  : `متوسط الوفر للزبون ${avg.toFixed(2)} د.ل بالطلب المخصوم — الكوبونات تبني الولاء وتزيد تكرار الطلب`}
+              </p>
+            </div>
+          )
+        })()}
       </div>
 
       {/* السجل الحي */}

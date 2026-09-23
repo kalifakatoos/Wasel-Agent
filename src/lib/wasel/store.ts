@@ -3,7 +3,7 @@
 // مخزن الحالة العامة لواصل نالوت (Zustand + persist)
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import type { CartItem, Role } from './types'
+import type { CartItem, Role, WaselNotification } from './types'
 
 interface WaselState {
   role: Role
@@ -38,6 +38,12 @@ interface WaselState {
   // عروض الرادار المرفوضة محلياً
   declinedOffers: string[]
   declineOffer: (orderId: string) => void
+
+  // 🔔 صندوق إشعارات الزبون (حتى 40 إشعاراً، يبقى بعد إغلاق التطبيق)
+  notifications: WaselNotification[]
+  pushNotification: (n: Omit<WaselNotification, 'read' | 'at'> & { at?: string }) => boolean
+  markNotificationsRead: () => void
+  clearNotifications: () => void
 }
 
 export const useWasel = create<WaselState>()(
@@ -103,6 +109,27 @@ export const useWasel = create<WaselState>()(
         set({
           declinedOffers: [...get().declinedOffers.slice(-30), orderId],
         }),
+
+      notifications: [],
+      pushNotification: (n) => {
+        const st = get()
+        // منع التكرار الصارم بمفتاح الإشعار
+        if (st.notifications.some((x) => x.id === n.id)) return false
+        const item: WaselNotification = {
+          ...n,
+          at: n.at ?? new Date().toISOString(),
+          read: false,
+        }
+        set({ notifications: [item, ...st.notifications].slice(0, 40) })
+        return true
+      },
+      markNotificationsRead: () =>
+        set({
+          notifications: get().notifications.map((n) =>
+            n.read ? n : { ...n, read: true },
+          ),
+        }),
+      clearNotifications: () => set({ notifications: [] }),
     }),
     {
       name: 'wasel-nalut-state',

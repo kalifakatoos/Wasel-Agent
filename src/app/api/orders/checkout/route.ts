@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { ensureSeed } from '@/lib/wasel/ensure-seed'
 import { computeDeliveryFee, haversineKm } from '@/lib/wasel/pricing'
 import { computePromoDiscountDb, recordPromoUsage } from '@/lib/wasel/promos-server'
+import { ensureGiftCardProducts, notifyCustomer, orderNotifyText } from '@/lib/wasel/notifications-server'
 import { emitRealtime, generateOtp, generateOrderNumber, isValidLibyanPhone, money } from '@/lib/wasel/server-utils'
 import { mapOrder } from '@/lib/wasel/orders-server'
 import { DISTRICTS } from '@/lib/wasel/constants'
@@ -21,6 +22,7 @@ const DISTRICT_GEO: Record<string, { lat: number; lng: number }> = {
 export async function POST(req: NextRequest) {
   try {
     await ensureSeed()
+    await ensureGiftCardProducts() // 🎁 بطاقات الشحن تُباع في واصل متاع — تُزرع تلقائياً
     const body = await req.json()
     const {
       store_id, items, customer_name, customer_phone,
@@ -208,6 +210,20 @@ export async function POST(req: NextRequest) {
       notes: dto.notes,
       createdAt: dto.createdAt,
     })
+
+    // 🔔 إشعار الزبون: وصل طلبك إلى المطبخ
+    const placedText = orderNotifyText('placed', { orderNumber: order.orderNumber, storeName: store.name, totalLyd: total })
+    if (placedText) {
+      await notifyCustomer(order.customerPhone, {
+        id: `order:${order.id}:placed`,
+        kind: 'order',
+        title: placedText.title,
+        body: placedText.body,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        storeEmoji: store.emoji,
+      })
+    }
 
     return NextResponse.json({ order: dto }, { status: 201 })
   } catch (e) {

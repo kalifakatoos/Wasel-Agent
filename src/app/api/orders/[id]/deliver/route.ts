@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { emitRealtime } from '@/lib/wasel/server-utils'
 import { mapOrder, settleLedgerOnDelivered } from '@/lib/wasel/orders-server'
+import { issueGiftCardsForOrder, notifyCustomer, orderNotifyText } from '@/lib/wasel/notifications-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,6 +43,29 @@ export async function POST(
 
     // 🧾 القيد المزدوج المحاسبي الكامل
     await settleLedgerOnDelivered(id)
+
+    // 🎁 إصدار أكواد بطاقات الشحن إن كان الطلب يحوي بطاقات من واصل متاع (+ إشعار بالأكواد)
+    await issueGiftCardsForOrder({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      customerPhone: order.customerPhone,
+      customerName: order.customerName,
+      itemsJson: order.itemsJson,
+    })
+
+    // 🔔 إشعار الزبون: اكتمل التوصيل
+    const deliveredText = orderNotifyText('delivered', order)
+    if (deliveredText) {
+      await notifyCustomer(order.customerPhone, {
+        id: `order:${id}:delivered`,
+        kind: 'order',
+        title: deliveredText.title,
+        body: deliveredText.body,
+        orderId: id,
+        orderNumber: order.orderNumber,
+        storeEmoji: order.store.emoji,
+      })
+    }
 
     const final = await db.order.findUnique({
       where: { id },

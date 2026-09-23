@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { emitRealtime } from '@/lib/wasel/server-utils'
 import { mapOrder } from '@/lib/wasel/orders-server'
+import { notifyCustomer } from '@/lib/wasel/notifications-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -64,6 +65,17 @@ export async function POST(
     )
     await emitRealtime(['admin:fleet', 'drivers:radar'], 'order:radar_taken', {
       orderId: id, driverId: driver.id, driverName: driver.fullName,
+    })
+
+    // 🔔 إشعار الزبون: عُيّن كابتن لطلبك
+    await notifyCustomer(order.customerPhone, {
+      id: `order:${id}:assigned`,
+      kind: 'order',
+      title: `🛵 عُيّن الكابتن ${driver.fullName}`,
+      body: `${driver.vehicleType} • لوحة ${driver.plateNumber || '—'} — سيصل إلى ${order.storeName} لاستلام طلبك قريباً`,
+      orderId: id,
+      orderNumber: order.orderNumber,
+      storeEmoji: order.store.emoji,
     })
 
     return NextResponse.json({ order: mapOrder(updated, updated.store) })

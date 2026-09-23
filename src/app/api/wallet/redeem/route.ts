@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { isValidLibyanPhone, money } from '@/lib/wasel/server-utils'
 import { emitRealtime } from '@/lib/wasel/server-utils'
+import { notifyCustomer } from '@/lib/wasel/notifications-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -89,6 +90,15 @@ export async function POST(req: NextRequest) {
       code: gift.code,
       amountLyd: amount,
       balance: money(wallet?.balance ?? amount),
+    })
+
+    // 🔔 إشعار الزبون: شُحنت محفظتك
+    await notifyCustomer(cleanPhone, {
+      id: `wallet:${gift.code}`,
+      kind: 'wallet',
+      title: '💰 شُحنت محفظتك بنجاح',
+      body: `أُضيف ${amount.toFixed(2)} د.ل بكود الهدية ${gift.code} — رصيدك الآن ${money(wallet?.balance ?? amount).toFixed(2)} د.ل`,
+      amountLyd: amount,
     })
 
     return NextResponse.json({
