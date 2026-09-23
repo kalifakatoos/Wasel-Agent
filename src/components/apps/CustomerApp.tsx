@@ -16,8 +16,9 @@ import { OrdersScreen } from './customer-orders'
 import { StoreScreen } from './customer-store'
 import { TrackingScreen } from './customer-tracking'
 import { WalletScreen } from './customer-wallet'
+import { OrderDetailScreen } from './customer-order-detail'
 
-type Tab = 'browse' | 'store' | 'cart' | 'checkout' | 'tracking' | 'orders' | 'wallet'
+type Tab = 'browse' | 'store' | 'cart' | 'checkout' | 'tracking' | 'orders' | 'wallet' | 'orderDetail'
 
 export default function CustomerApp({ onExit }: { onExit: () => void }) {
   const [tab, setTab] = useState<Tab>('browse')
@@ -40,6 +41,11 @@ export default function CustomerApp({ onExit }: { onExit: () => void }) {
   const trackOrder = (orderId: string) => {
     setActiveOrderId(orderId)
     setTab('tracking')
+  }
+
+  const openOrderDetail = (orderId: string) => {
+    setActiveOrderId(orderId)
+    setTab('orderDetail')
   }
 
   const onPlaced = (order: OrderDTO) => {
@@ -124,7 +130,10 @@ export default function CustomerApp({ onExit }: { onExit: () => void }) {
           <TrackingScreen orderId={activeOrderId} onBrowse={() => setTab('browse')} />
         )}
 
-        {tab === 'orders' && <OrdersScreen onTrack={trackOrder} onBack={() => setTab('browse')} />}
+        {tab === 'orders' && <OrdersScreen onTrack={trackOrder} onOpenDetail={openOrderDetail} onBack={() => setTab('browse')} />}
+        {tab === 'orderDetail' && activeOrderId && (
+          <OrderDetailScreen orderId={activeOrderId} onTrack={trackOrder} onBack={() => setTab('orders')} />
+        )}
 
         {tab === 'wallet' && <WalletScreen />}
       </main>

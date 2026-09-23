@@ -8,6 +8,7 @@ export const metadata: Metadata = {
     "سوبر-آب التوصيل المحلي لمدينة نالوت وجبل نفوسة: واصل إيت، واصل مارت، واصل متاع — بالدينار الليبي حصرياً",
   keywords: ["واصل نالوت", "توصيل", "نالوت", "ليبيا", "Wasel Nalut", "delivery"],
   authors: [{ name: "Wasel Nalut Operations" }],
+  manifest: "/manifest.webmanifest",
   icons: { icon: "/logo.svg" },
 };
 

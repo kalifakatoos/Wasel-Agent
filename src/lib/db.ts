@@ -1,13 +1,18 @@
 import { PrismaClient } from '@prisma/client'
 
+// مفتاح إصدار لتجديد العميل في dev بعد تغييرات المخطط (HMR-safe)
+const GLOBAL_KEY = '__waselPrismaClient_v2'
+
 const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined
+  [GLOBAL_KEY]?: PrismaClient
 }
 
-export const db =
-  globalForPrisma.prisma ??
-  new PrismaClient({
+function createClient(): PrismaClient {
+  return new PrismaClient({
     log: ['query'],
   })
+}
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+export const db = globalForPrisma[GLOBAL_KEY] ?? createClient()
+
+if (process.env.NODE_ENV !== 'production') globalForPrisma[GLOBAL_KEY] = db

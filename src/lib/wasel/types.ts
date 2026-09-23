@@ -97,6 +97,9 @@ export interface OrderDTO {
   deliveredAt: string | null
   notes: string
   disputeNote: string | null
+  ratedAt: string | null
+  storeStars: number | null
+  driverStars: number | null
   createdAt: string
   storeLatitude?: number
   storeLongitude?: number

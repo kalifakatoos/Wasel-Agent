@@ -17,7 +17,15 @@ const ACTIVE_STATUSES = new Set<OrderStatus>([
   'out_for_delivery',
 ])
 
-export function OrdersScreen({ onTrack, onBack }: { onTrack: (orderId: string) => void; onBack: () => void }) {
+export function OrdersScreen({
+  onTrack,
+  onOpenDetail,
+  onBack,
+}: {
+  onTrack: (orderId: string) => void
+  onOpenDetail: (orderId: string) => void
+  onBack: () => void
+}) {
   const phone = useWasel((s) => s.customerPhone)
   const savedName = useWasel((s) => s.customerName)
   const setCustomerIdentity = useWasel((s) => s.setCustomerIdentity)
@@ -87,7 +95,17 @@ export function OrdersScreen({ onTrack, onBack }: { onTrack: (orderId: string) =
             return (
               <div
                 key={o.id}
-                className={`rounded-2xl border bg-[#062319] p-4 ${
+                role="button"
+                tabIndex={0}
+                onClick={() => (isActive ? onTrack(o.id) : onOpenDetail(o.id))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    if (isActive) onTrack(o.id)
+                    else onOpenDetail(o.id)
+                  }
+                }}
+                className={`cursor-pointer rounded-2xl border bg-[#062319] p-4 transition-all hover:-translate-y-0.5 hover:border-[rgba(245,208,97,0.5)] hover:shadow-lg hover:shadow-[rgba(212,175,55,0.1)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] ${
                   isActive ? 'border-[rgba(245,208,97,0.45)] shadow-lg shadow-[rgba(212,175,55,0.08)]' : 'border-[rgba(212,175,55,0.18)]'
                 }`}
               >
@@ -98,18 +116,32 @@ export function OrdersScreen({ onTrack, onBack }: { onTrack: (orderId: string) =
                 <p className="mt-2 text-[11px] text-[#938E7E]">
                   {o.storeEmoji ?? '🏪'} {o.storeName} • {o.items.length} أصناف • {fmtDate(o.createdAt)}
                 </p>
+                {o.storeStars ? (
+                  <p className="mt-1 text-[11px] font-bold text-[#F5D061]">
+                    {'★'.repeat(o.storeStars)}
+                    <span className="text-[rgba(212,175,55,0.3)]">{'★'.repeat(5 - o.storeStars)}</span>
+                    <span className="ms-2 font-normal text-[#938E7E]">تقييمك مسجل — شكراً</span>
+                  </p>
+                ) : null}
                 <div className="mt-3 flex items-center justify-between">
                   <Ly amount={o.totalLyd} bold className="text-lg text-[#F8F5EE]" />
                   {isActive ? (
                     <Button
-                      onClick={() => onTrack(o.id)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onTrack(o.id)
+                      }}
                       className="h-12 rounded-xl bg-gradient-to-l from-[#D4AF37] to-[#F5D061] px-5 text-xs font-extrabold text-[#041710] shadow-md shadow-[rgba(212,175,55,0.2)]"
                     >
                       تتبع حي ←
                     </Button>
                   ) : (
-                    <span className="text-[10px] font-semibold text-[#938E7E]">
-                      {o.status === 'delivered' ? `سُلّم ${o.deliveredAt ? fmtDate(o.deliveredAt) : ''}` : '—'}
+                    <span className="text-[10px] font-semibold text-[#D4AF37]">
+                      {o.status === 'delivered'
+                        ? o.storeStars
+                          ? `فاتورة الطلب ←`
+                          : 'عرض الفاتورة والتقييم ←'
+                        : '—'}
                     </span>
                   )}
                 </div>

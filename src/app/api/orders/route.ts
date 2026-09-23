@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { mapOrder } from '@/lib/wasel/orders-server'
+import { mapOrder, patchNewOrderFields } from '@/lib/wasel/orders-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,7 +31,8 @@ export async function GET(req: NextRequest) {
       include: { store: { select: { latitude: true, longitude: true, emoji: true } } },
     })
 
-    return NextResponse.json({ orders: orders.map((o) => mapOrder(o, o.store)) })
+    const patched = await patchNewOrderFields(orders)
+    return NextResponse.json({ orders: patched.map((o) => mapOrder(o, o.store)) })
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }

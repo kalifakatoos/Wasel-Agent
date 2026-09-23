@@ -15,7 +15,38 @@ type OrderRow = {
   district: string; deliveryLat: number; deliveryLng: number; otpCode: string
   paymentMethod: string; prepTimeMinutes: number; dispatchAt: Date | null
   readyAt: Date | null; handoverAt: Date | null; deliveredAt: Date | null
-  notes: string; disputeNote: string | null; createdAt: Date
+  notes: string; disputeNote: string | null
+  ratedAt: Date | null; storeStars: number | null; driverStars: number | null
+  createdAt: Date
+}
+
+/// ترقيع حقول التقييم الجديدة عبر SQL خام (متوافق مع عميل Prisma قديم محمّل في الذاكرة)
+export async function patchNewOrderFields<T extends { id: string }>(orders: T[]): Promise<T[]> {
+  if (orders.length === 0) return orders
+  try {
+    const ids = orders.map((o) => o.id)
+    const placeholders = ids.map(() => '?').join(',')
+    const rows = await db.$queryRawUnsafe<{
+      id: string; ratedAt: string | null; storeStars: number | null; driverStars: number | null
+    }[]>(
+      `SELECT id, ratedAt, storeStars, driverStars FROM "Order" WHERE id IN (${placeholders})`,
+      ...ids,
+    )
+    const byId = new Map(rows.map((r) => [r.id, r]))
+    return orders.map((o) => {
+      const patch = byId.get(o.id)
+      if (!patch) return o
+      return {
+        ...o,
+        ratedAt: (o as { ratedAt?: unknown }).ratedAt ?? patch.ratedAt ?? null,
+        storeStars: (o as { storeStars?: unknown }).storeStars ?? patch.storeStars ?? null,
+        driverStars: (o as { driverStars?: unknown }).driverStars ?? patch.driverStars ?? null,
+      }
+    })
+  } catch {
+    // إن فشل الترقيع (مثلاً عميل حديث يملك الحقول أصلاً) نعيد كما هو
+    return orders
+  }
 }
 
 export function mapOrder(o: OrderRow, store?: { latitude: number; longitude: number; emoji: string } | null): OrderDTO {
@@ -48,6 +79,9 @@ export function mapOrder(o: OrderRow, store?: { latitude: number; longitude: num
     deliveredAt: o.deliveredAt?.toISOString() ?? null,
     notes: o.notes,
     disputeNote: o.disputeNote,
+    ratedAt: o.ratedAt?.toISOString() ?? null,
+    storeStars: o.storeStars,
+    driverStars: o.driverStars,
     createdAt: o.createdAt.toISOString(),
     storeLatitude: store?.latitude,
     storeLongitude: store?.longitude,

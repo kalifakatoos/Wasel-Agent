@@ -75,6 +75,13 @@ const PORTALS: {
 interface HealthData {
   db: { stores: number; drivers: number }
   realtime: string
+  live?: {
+    ordersToday: number
+    deliveredToday: number
+    gmvToday: number
+    onlineDrivers: number
+    activeOrders: number
+  }
 }
 
 export default function WaselMain() {
@@ -83,10 +90,14 @@ export default function WaselMain() {
   const [booting, setBooting] = useState(true)
 
   useEffect(() => {
-    apiGet<HealthData & { ok: boolean }>('/api/health')
-      .then(setHealth)
-      .catch(() => setHealth(null))
-      .finally(() => setBooting(false))
+    const load = () =>
+      apiGet<HealthData & { ok: boolean }>('/api/health')
+        .then(setHealth)
+        .catch(() => setHealth(null))
+        .finally(() => setBooting(false))
+    load()
+    const t = setInterval(load, 15000)
+    return () => clearInterval(t)
   }, [])
 
   if (booting) return <PortalLoader label="جارٍ تشغيل منظومة واصل نالوت…" />
@@ -126,35 +137,50 @@ export default function WaselMain() {
       </header>
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-16 pt-8">
-        {/* البطل */}
-        <section className="relative mb-10 overflow-hidden rounded-3xl border border-[rgba(212,175,55,0.25)] bg-gradient-to-bl from-[#0A3324] via-[#062319] to-[#041710] p-8 text-center md:p-12 gold-glow">
+        {/* البطل — بصورة جبل نفوسة المولّدة */}
+        <section className="relative mb-10 overflow-hidden rounded-3xl border border-[rgba(212,175,55,0.25)] p-8 text-center gold-glow md:p-12">
+          <div
+            className="absolute inset-0 bg-cover bg-center"
+            style={{ backgroundImage: 'url(/images/hero.png)' }}
+            aria-hidden="true"
+          />
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                'linear-gradient(180deg, rgba(4,23,16,0.82) 0%, rgba(4,23,16,0.88) 55%, rgba(4,23,16,0.96) 100%)',
+            }}
+            aria-hidden="true"
+          />
           <div className="pointer-events-none absolute -top-24 left-1/2 h-64 w-64 -translate-x-1/2 rounded-full bg-[rgba(212,175,55,0.12)] blur-3xl" />
-          <p className="mb-3 text-xs font-bold tracking-[0.3em] text-[#D4AF37]">
-            نالوت • جبل نفوسة • ليبيا
-          </p>
-          <h2 className="mb-4 text-4xl font-black leading-snug text-[#F8F5EE] md:text-6xl">
-            <span className="gold-text">واصل</span> يوصّل لك كل شيء
-          </h2>
-          <p className="mx-auto mb-8 max-w-2xl text-sm leading-relaxed text-[#938E7E] md:text-base">
-            منظومة التجارة والتوصيل الفائقة لمدينة نالوت — وجبات المطاعم، بقالة 15-30 دقيقة،
-            وسوق محلي للإلكترونيات والعطور. بالدينار الليبي حصرياً، بلا رسوم خدمة، وبميثاق شرعي واضح.
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            <Button
-              size="lg"
-              onClick={() => setRole('customer')}
-              className="h-12 rounded-xl bg-gradient-to-l from-[#D4AF37] to-[#F5D061] px-8 text-base font-bold text-[#041710] shadow-lg shadow-[rgba(212,175,55,0.25)] transition hover:scale-[1.02]"
-            >
-              🚀 اطلب الآن
-            </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              onClick={() => setRole('captain')}
-              className="h-12 rounded-xl border-[rgba(212,175,55,0.4)] bg-transparent px-8 text-base font-bold text-[#F5D061] hover:bg-[rgba(212,175,55,0.08)]"
-            >
-              🛵 انضم كابتن
-            </Button>
+          <div className="relative">
+            <p className="mb-3 text-xs font-bold tracking-[0.3em] text-[#D4AF37]">
+              نالوت • جبل نفوسة • ليبيا
+            </p>
+            <h2 className="mb-4 text-4xl font-black leading-snug text-[#F8F5EE] md:text-6xl">
+              <span className="gold-text">واصل</span> يوصّل لك كل شيء
+            </h2>
+            <p className="mx-auto mb-8 max-w-2xl text-sm leading-relaxed text-[#F8F5EE]/75 md:text-base">
+              منظومة التجارة والتوصيل الفائقة لمدينة نالوت — وجبات المطاعم، بقالة 15-30 دقيقة،
+              وسوق محلي للإلكترونيات والعطور. بالدينار الليبي حصرياً، بلا رسوم خدمة، وبميثاق شرعي واضح.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Button
+                size="lg"
+                onClick={() => setRole('customer')}
+                className="h-12 rounded-xl bg-gradient-to-l from-[#D4AF37] to-[#F5D061] px-8 text-base font-bold text-[#041710] shadow-lg shadow-[rgba(212,175,55,0.25)] transition hover:scale-[1.02]"
+              >
+                🚀 اطلب الآن
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={() => setRole('captain')}
+                className="h-12 rounded-xl border-[rgba(212,175,55,0.4)] bg-transparent px-8 text-base font-bold text-[#F5D061] hover:bg-[rgba(212,175,55,0.08)]"
+              >
+                🛵 انضم كابتن
+              </Button>
+            </div>
           </div>
         </section>
 
@@ -192,16 +218,24 @@ export default function WaselMain() {
         {/* المؤشرات الحية */}
         <section className="mb-12 grid gap-4 sm:grid-cols-3">
           <div className="rounded-2xl border border-[rgba(212,175,55,0.18)] bg-[#062319] p-5 text-center">
-            <p className="font-money text-3xl font-bold text-[#F5D061]">{health?.db.stores ?? '—'}</p>
-            <p className="mt-1 text-xs font-semibold text-[#938E7E]">متجر شريك في نالوت</p>
+            <p className="font-money text-3xl font-bold text-[#F5D061]">
+              {health?.live ? `${health.live.ordersToday}` : '—'}
+            </p>
+            <p className="mt-1 text-xs font-semibold text-[#938E7E]">طلب اليوم في المنظومة</p>
           </div>
           <div className="rounded-2xl border border-[rgba(212,175,55,0.18)] bg-[#062319] p-5 text-center">
-            <p className="font-money text-3xl font-bold text-[#F5D061]">{health?.db.drivers ?? '—'}</p>
-            <p className="mt-1 text-xs font-semibold text-[#938E7E]">كباتن في الأسطول</p>
+            <p className="font-money text-3xl font-bold text-[#10B981]">
+              {health?.live ? health.live.gmvToday.toFixed(2) : '—.—'}
+              <span className="ms-1 text-sm">د.ل</span>
+            </p>
+            <p className="mt-1 text-xs font-semibold text-[#938E7E]">حجم التداول اليومي GMV</p>
           </div>
           <div className="rounded-2xl border border-[rgba(212,175,55,0.18)] bg-[#062319] p-5 text-center">
-            <p className="font-money text-3xl font-bold text-[#10B981]">0.00</p>
-            <p className="mt-1 text-xs font-semibold text-[#938E7E]">رسوم خدمة على الزبون (د.ل)</p>
+            <p className="font-money text-3xl font-bold text-[#F5D061]">
+              {health?.live ? health.live.onlineDrivers : '—'}
+              <span className="ms-1 text-sm text-[#938E7E]">/ {health?.db.drivers ?? '—'}</span>
+            </p>
+            <p className="mt-1 text-xs font-semibold text-[#938E7E]">كباتن متصلون الآن 🛵</p>
           </div>
         </section>
 

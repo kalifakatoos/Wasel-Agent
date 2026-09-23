@@ -309,6 +309,19 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
     [stores, storeId, menuStore],
   )
 
+  const toggleStoreOpen = useCallback(async () => {
+    if (!currentStore) return
+    const next = !currentStore.isOpen
+    try {
+      await apiPost(`/api/stores/${encodeURIComponent(currentStore.id)}/open-toggle`, { is_open: next })
+      // التزامن يحدث عبر حدث socket (onStoreStatus) — نحدّث هنا احتياطاً
+      setStores((prev) => prev.map((s) => (s.id === currentStore.id ? { ...s, isOpen: next } : s)))
+      setMenuStore((prev) => (prev && prev.id === currentStore.id ? { ...prev, isOpen: next } : prev))
+    } catch {
+      toast({ title: '⚠️ تعذر تغيير حالة المتجر', duration: 3000 })
+    }
+  }, [currentStore, toast])
+
   // ---------- المُحمِّلات ----------
   const loadStores = useCallback(async () => {
     try {
@@ -431,6 +444,16 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
         duration: 9000,
       })
     }
+    const onStoreStatus = (p: { storeId: string; isOpen: boolean; storeName: string }) => {
+      if (p.storeId !== storeIdRef.current) return
+      setStores((prev) => prev.map((s) => (s.id === p.storeId ? { ...s, isOpen: p.isOpen } : s)))
+      setMenuStore((prev) => (prev && prev.id === p.storeId ? { ...prev, isOpen: p.isOpen } : prev))
+      toast({
+        title: p.isOpen ? '🟢 المتجر مفتوح لاستقبال الطلبات' : '🔴 تم إغلاق المتجر مؤقتاً',
+        description: p.isOpen ? 'ستصلكم الطلبات الجديدة فوراً' : 'لن تقبل أي طلبات جديدة حتى إعادة الفتح',
+        duration: 5000,
+      })
+    }
 
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
@@ -439,6 +462,7 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
     socket.on('order:assigned', onAssigned)
     socket.on('store:product_availability', onProductAvail)
     socket.on('store:payout_settled', onPayout)
+    socket.on('store:status_changed', onStoreStatus)
     if (socket.connected) {
       setConnected(true)
       join()
@@ -452,6 +476,7 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
       socket.off('order:assigned', onAssigned)
       socket.off('store:product_availability', onProductAvail)
       socket.off('store:payout_settled', onPayout)
+      socket.off('store:status_changed', onStoreStatus)
       leaveRooms([`store:${storeId}`])
     }
   }, [storeId, loadActive, loadAllOrders, toast])
@@ -624,6 +649,41 @@ export default function MerchantApp({ onExit }: { onExit: () => void }) {
                 ))}
               </SelectContent>
             </Select>
+
+            {/* 🔓 مفتاح فتح/إغلاق المتجر — يمنع الطلبات الجديدة فوراً */}
+            {currentStore && (
+              <button
+                type="button"
+                onClick={toggleStoreOpen}
+                aria-pressed={currentStore.isOpen}
+                className={`flex h-12 items-center gap-2.5 rounded-xl border px-4 transition-all ${
+                  currentStore.isOpen
+                    ? 'border-[rgba(16,185,129,0.45)] bg-[rgba(16,185,129,0.1)]'
+                    : 'border-[rgba(239,68,68,0.45)] bg-[rgba(239,68,68,0.1)]'
+                }`}
+                title={currentStore.isOpen ? 'اضغط للإغلاق المؤقت' : 'اضغط لإعادة الفتح'}
+              >
+                <span className={`h-2.5 w-2.5 rounded-full ${currentStore.isOpen ? 'bg-[#10B981]' : 'bg-[#EF4444]'}`} />
+                <span
+                  className={`text-xs font-extrabold ${
+                    currentStore.isOpen ? 'text-[#10B981]' : 'text-[#EF4444]'
+                  }`}
+                >
+                  {currentStore.isOpen ? 'مفتوح' : 'مغلق'}
+                </span>
+                <span
+                  className={`relative h-6 w-11 rounded-full transition-colors ${
+                    currentStore.isOpen ? 'bg-[#10B981]/70' : 'bg-[#EF4444]/60'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+                      currentStore.isOpen ? 'right-0.5' : 'right-[22px]'
+                    }`}
+                  />
+                </span>
+              </button>
+            )}
 
             {/* مؤشر البث */}
             <div

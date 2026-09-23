@@ -10,6 +10,7 @@ import { Ly, StatusBadge } from '@/components/wasel/Badges'
 import { NalutMap, type MapMarker } from '@/components/wasel/NalutMap'
 import { apiGet } from '@/lib/wasel/api'
 import { STATUS_LABELS } from '@/lib/wasel/constants'
+import { haversineKm } from '@/lib/wasel/pricing'
 import { getSocket, joinRooms, leaveRooms } from '@/lib/wasel/socket'
 import type { OrderDTO, OrderStatus } from '@/lib/wasel/types'
 import { ErrorBlock, LoadingBlock, ScreenBar } from './customer-shared'
@@ -277,6 +278,67 @@ export function TrackingScreen({
               </ol>
             )}
           </div>
+
+          {/* ⏱️ الوصول المتوقع (ETA) */}
+          {!isDelivered && !isCancelled && (
+            <div className="rounded-2xl border border-[rgba(16,185,129,0.28)] bg-[rgba(16,185,129,0.05)] p-5">
+              {(() => {
+                const distKm = haversineKm(
+                  order.storeLatitude ?? 31.8687,
+                  order.storeLongitude ?? 10.9818,
+                  order.deliveryLat,
+                  order.deliveryLng,
+                )
+                const travelMin = Math.max(3, Math.round((distKm / 22) * 60))
+                let etaMin = travelMin
+                let label = 'الوصول المتوقع'
+                if (order.status === 'preparing' || order.status === 'accepted' || order.status === 'placed') {
+                  const elapsed = order.dispatchAt
+                    ? (Date.now() - new Date(order.dispatchAt).getTime()) / 60000
+                    : 0
+                  const prepRemaining = Math.max(0, Math.round(order.prepTimeMinutes - elapsed))
+                  etaMin = prepRemaining + travelMin
+                  label = 'الوصول المتوقع (بعد التحضير + الرحلة)'
+                } else if (order.status === 'ready_for_pickup') {
+                  etaMin = Math.max(3, travelMin + 2)
+                  label = 'الوصول المتوقع (جاهز بانتظار الكابتن)'
+                } else if (order.status === 'out_for_delivery') {
+                  const elapsed = order.handoverAt
+                    ? (Date.now() - new Date(order.handoverAt).getTime()) / 60000
+                    : 0
+                  etaMin = Math.max(1, Math.round(travelMin - elapsed))
+                  label = 'الوصول المتوقع'
+                }
+                const progress =
+                  order.status === 'out_for_delivery'
+                    ? Math.min(92, Math.round(((travelMin - etaMin) / Math.max(1, travelMin)) * 100))
+                    : order.status === 'ready_for_pickup'
+                      ? 62
+                      : 34
+                return (
+                  <>
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-xs font-extrabold text-[#10B981]">⏱️ {label}</p>
+                      <p className="font-money text-lg font-bold text-[#F8F5EE]">
+                        ~{Math.max(1, etaMin)} <span className="text-[10px] font-semibold text-[#938E7E]">دقيقة</span>
+                      </p>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-[#041710]">
+                      <motion.div
+                        animate={{ width: `${progress}%` }}
+                        transition={{ duration: 0.8 }}
+                        className="h-full rounded-full bg-gradient-to-l from-[#10B981] to-[#F5D061]"
+                      />
+                    </div>
+                    <p className="mt-2 text-[10px] text-[#938E7E]">
+                      المسافة من المتجر إليك: <span className="font-money text-[#D4AF37]">{distKm.toFixed(1)}</span> كم
+                      بمتوسط سرعة حضرية 22 كم/س
+                    </p>
+                  </>
+                )
+              })()}
+            </div>
+          )}
 
           {/* كود OTP */}
           <div className={`rounded-2xl border border-[rgba(212,175,55,0.3)] bg-[#062319] p-5 text-center ${isDelivered ? 'opacity-55' : ''}`}>

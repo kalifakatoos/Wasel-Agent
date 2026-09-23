@@ -21,6 +21,8 @@ model Store {
   latitude        Float
   longitude       Float
   rating          Float    @default(4.8)
+  ratingSum       Float    @default(0) // مجموع نجوم التقييمات الحية
+  ratingCount     Int      @default(0) // عدد التقييمات الحية
   isOpen          Boolean  @default(true)
   baseDeliveryFee Float    @default(5.0)
   emoji           String   @default("🏪")
@@ -59,6 +61,8 @@ model Driver {
   currentLatitude   Float?
   currentLongitude  Float?
   rating            Float   @default(4.9)
+  ratingSum         Float   @default(0) // مجموع نجوم تقييمات الزبائن
+  ratingCount       Int     @default(0) // عدد تقييمات الزبائن
   activeOrdersCount Int     @default(0)
   /// عهدة الكاش المتراكمة بحوزة الكابتن (د.ل)
   custodyCash       Float   @default(0)
@@ -101,6 +105,10 @@ model Order {
   deliveredAt    DateTime?
   notes          String    @default("")
   disputeNote    String?
+  /// تقييم الزبون بعد التسليم (نجوم 1-5) — تقييم واحد لكل طلب
+  ratedAt        DateTime?
+  storeStars     Int?
+  driverStars    Int?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

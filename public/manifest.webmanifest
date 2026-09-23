@@ -1,0 +1,19 @@
+{
+  "name": "واصل نالوت — Wasel Nalut",
+  "short_name": "واصل نالوت",
+  "description": "منظومة التوصيل الفائقة لمدينة نالوت وجبل نفوسة — بالدينار الليبي حصرياً",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#041710",
+  "theme_color": "#041710",
+  "lang": "ar",
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
