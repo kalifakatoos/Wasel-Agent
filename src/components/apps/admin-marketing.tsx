@@ -5,9 +5,9 @@
 // إدارة كوبونات الخصم (إنشاء/تعطيل/إحصائيات) + أكواد شحن المحفظة
 // الخصم تتحمله المنصة كاملاً — دينار ليبي حصرياً
 // ============================================================
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Copy, Loader2, Plus, TicketPercent, Gift, TrendingDown } from 'lucide-react'
+import { Copy, Download, Loader2, Plus, TicketPercent, Gift, TrendingDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -35,12 +35,32 @@ import { api } from '@/lib/wasel/api'
 import { fmtDateTime } from './admin-shared'
 import type { PromoAdmin, TopupCodeAdmin } from './admin-shared'
 
-/// 📉 تقرير الفرص الضائعة الشهري (CRON-R9)
+/// 📉 تقرير الفرص الضائعة الشهري (CRON-R9 + R10: توزيع يومي لكل كود)
 interface LostReport {
   days: number
   totals: { count: number; lostLyd: number }
   series: { date: string; label: string; count: number; lostLyd: number }[]
-  codes: { code: string; count: number; lostLyd: number; topReason: string; lastAt: string | null }[]
+  codes: {
+    code: string
+    count: number
+    lostLyd: number
+    topReason: string
+    lastAt: string | null
+    daily: { day: string; count: number }[]
+  }[]
+}
+
+const LOST_PERIODS_R10: { days: 7 | 30 | 90; label: string }[] = [
+  { days: 7, label: 'أسبوع' },
+  { days: 30, label: 'شهر' },
+  { days: 90, label: '٣ أشهر' },
+]
+
+/// مفتاح اليوم المحلي yyyy-mm-dd من تاريخ ISO — يطابق مفاتيح الخادم
+function localDayKeyR10(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 const REJECT_REASON_LABELS_MK: Record<string, string> = {
@@ -281,29 +301,37 @@ export default function MarketingTab({
 }) {
   const { toast } = useToast()
 
-  // ---------- 📉 تقرير الفرص الضائعة (30 يوماً) ----------
+  // ---------- 📉 تقرير الفرص الضائعة (مُبدّل فترة 7/30/90 — R10) ----------
   const [lostReport, setLostReport] = useState<LostReport | null>(null)
   const [lostLoading, setLostLoading] = useState(true)
   const [lostHover, setLostHover] = useState<number | null>(null)
+  const [lostDays, setLostDays] = useState<7 | 30 | 90>(30)
+  const [lostRowHover, setLostRowHover] = useState<string | null>(null)
+
+  const loadLostReport = useCallback(
+    async (days: number, alive: { current: boolean }) => {
+      setLostLoading(true)
+      try {
+        const r = await api<LostReport>(`/api/admin/promos/report?days=${days}`, {
+          headers: { 'x-admin-pin': pin },
+        })
+        if (alive.current) setLostReport(r)
+      } catch {
+        /* التقرير تحليلي — فشله لا يعطّل التاب */
+      } finally {
+        if (alive.current) setLostLoading(false)
+      }
+    },
+    [pin],
+  )
 
   useEffect(() => {
-    let alive = true
-    api<LostReport>('/api/admin/promos/report?days=30', {
-      headers: { 'x-admin-pin': pin },
-    })
-      .then((r) => {
-        if (alive) setLostReport(r)
-      })
-      .catch(() => {
-        /* التقرير تحليلي — فشله لا يعطّل التاب */
-      })
-      .finally(() => {
-        if (alive) setLostLoading(false)
-      })
+    const alive = { current: true }
+    void loadLostReport(lostDays, alive)
     return () => {
-      alive = false
+      alive.current = false
     }
-  }, [pin])
+  }, [loadLostReport, lostDays])
 
   // ---------- حالة نموذج إنشاء كوبون ----------
   const [createOpen, setCreateOpen] = useState(false)
@@ -357,7 +385,7 @@ export default function MarketingTab({
   const totalUsed = promos?.reduce((n, p) => n + p.usedCount, 0) ?? 0
   const totalDiscount = promos?.reduce((n, p) => n + p.totalDiscountLyd, 0) ?? 0
 
-  // 📉 هندسة سباركلاين الفرص الضائعة
+  // 📉 هندسة سباركلاين الفرص الضائعة (+ خريطة أيام كل كود لربط التحويم — R10)
   const lostChart = useMemo(() => {
     const series = lostReport?.series ?? []
     if (series.length === 0) return null
@@ -371,12 +399,23 @@ export default function MarketingTab({
     const pts = series.map((d, i) => ({
       x: PAD_X + i * stepX,
       y: PAD_TOP + (1 - d.lostLyd / maxLost) * (H - PAD_TOP - PAD_BOTTOM),
+      dayKey: localDayKeyR10(d.date),
       ...d,
     }))
     const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
     const areaPath = `${linePath} L${pts[pts.length - 1].x.toFixed(1)},${H - PAD_BOTTOM} L${pts[0].x.toFixed(1)},${H - PAD_BOTTOM} Z`
     return { W, H, pts, linePath, areaPath }
   }, [lostReport])
+
+  // 🆕 R10: خريطة يوم→عدد محاولات للكود المُحوَّم — تُضيء نقاطه على السباركلاين
+  const hoveredCodeDayMap = useMemo(() => {
+    if (!lostRowHover) return null
+    const code = lostReport?.codes.find((c) => c.code === lostRowHover)
+    if (!code || code.daily.length === 0) return null
+    const m = new Map<string, number>()
+    for (const d of code.daily) if (d.count > 0) m.set(d.day, d.count)
+    return m.size > 0 ? m : null
+  }, [lostReport, lostRowHover])
   const giftStats = (() => {
     const list = codes ?? []
     const used = list.filter((c) => c.usedByPhone).length
@@ -385,9 +424,58 @@ export default function MarketingTab({
     return { used, active, redeemed }
   })()
 
+  // 🆕 R10: تصدير تقرير الفرص الضائعة CSV (BOM عربي + ثلاثة أقسام)
+  const exportLostCsv = () => {
+    if (!lostReport) return
+    const esc = (v: string | number): string => {
+      const s = String(v)
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const rows: (string | number)[][] = [
+      ['تقرير الفرص الضائعة — منظومة واصل نالوت'],
+      [`النافذة الزمنية`, `آخر ${lostReport.days} يوماً`],
+      ['إجمالي المحاولات المرفوضة', lostReport.totals.count],
+      ['القيمة المهدورة التقديرية (د.ل)', lostReport.totals.lostLyd],
+      [],
+      ['السلسلة اليومية'],
+      ['التاريخ', 'اليوم', 'محاولات مرفوضة', 'قيمة مهدورة (د.ل)'],
+      ...lostReport.series.map((d) => [d.date.slice(0, 10), d.label, d.count, d.lostLyd] as (string | number)[]),
+      [],
+      ['تفصيل الأكواد'],
+      ['الكود', 'محاولات', 'هدر تقديري (د.ل)', 'السبب الأشهر', 'آخر محاولة', 'أيام نشطة'],
+      ...lostReport.codes.map(
+        (c) =>
+          [
+            c.code,
+            c.count,
+            c.lostLyd,
+            REJECT_REASON_LABELS_MK[c.topReason] ?? c.topReason,
+            c.lastAt ? fmtDateTime(c.lastAt) : '',
+            c.daily.filter((x) => x.count > 0).length,
+          ] as (string | number)[],
+      ),
+    ]
+    const csv = '\uFEFF' + rows.map((r) => r.map(esc).join(',')).join('\r\n')
+    try {
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `wasel-lost-opportunities-${lostReport.days}d.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast({
+        title: '📥 صُدّر التقرير CSV',
+        description: `${lostReport.totals.count} محاولة • ${lostReport.days} يوماً — يفتح في Excel بنظام UTF-8`,
+      })
+    } catch {
+      toast({ title: 'تعذر التصدير', description: 'المتصفح منع تنزيل الملف — حاول مجدداً', variant: 'destructive' })
+    }
+  }
+
   return (
     <div className="space-y-6">
-      {/* ======= 📉 تقرير الفرص الضائعة — آخر 30 يوماً (CRON-R9) ======= */}
+      {/* ======= 📉 تقرير الفرص الضائعة — مُبدّل فترة (CRON-R9 + R10) ======= */}
       <section className="rounded-2xl border border-[rgba(239,68,68,0.25)] bg-[#062319] p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -395,11 +483,49 @@ export default function MarketingTab({
               📉
             </span>
             <div>
-              <h3 className="text-sm font-extrabold text-[#F8F5EE]">تقرير الفرص الضائعة — آخر 30 يوماً</h3>
+              <h3 className="text-sm font-extrabold text-[#F8F5EE]">تقرير الفرص الضائعة — آخر {lostReport?.days ?? lostDays} يوماً</h3>
               <p className="text-[10px] text-[#938E7E]">
                 زبائن حاولوا كوبوناً نفدت حصته أو قِطع شرطه — كل محاولة عميل محتمل انسحب
               </p>
             </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* 🆕 R10: مُبدّل الفترة 7/30/90 */}
+            <div
+              role="group"
+              aria-label="اختيار فترة التقرير"
+              className="flex items-center gap-0.5 rounded-full border border-[rgba(239,68,68,0.3)] bg-[#041710] p-0.5"
+            >
+              {LOST_PERIODS_R10.map((p) => {
+                const active = lostDays === p.days
+                return (
+                  <button
+                    key={p.days}
+                    type="button"
+                    onClick={() => setLostDays(p.days)}
+                    aria-pressed={active}
+                    className={`min-h-9 rounded-full px-3 text-[11px] font-extrabold transition-all duration-200 ${
+                      active
+                        ? 'bg-gradient-to-l from-[#EF4444] to-[#F87171] text-[#041710] shadow-md shadow-[rgba(239,68,68,0.3)]'
+                        : 'text-[#938E7E] hover:bg-[rgba(239,68,68,0.12)] hover:text-[#F8F5EE]'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                )
+              })}
+            </div>
+            {/* 🆕 R10: زر تصدير CSV */}
+            <Button
+              onClick={exportLostCsv}
+              disabled={!lostReport || lostLoading}
+              variant="outline"
+              aria-label="تصدير تقرير الفرص الضائعة ملف CSV"
+              className="min-h-9 rounded-xl border-[rgba(16,185,129,0.4)] bg-[rgba(16,185,129,0.08)] px-3 text-[11px] font-extrabold text-[#10B981] transition-all hover:bg-[rgba(16,185,129,0.18)] hover:shadow-md hover:shadow-[rgba(16,185,129,0.2)]"
+            >
+              <Download className="h-3.5 w-3.5" />
+              CSV
+            </Button>
           </div>
           {lostReport && (
             <div className="flex flex-wrap gap-2 text-[11px]">
@@ -420,7 +546,7 @@ export default function MarketingTab({
           </div>
         ) : !lostChart || lostReport?.totals.count === 0 ? (
           <div className="flex min-h-20 items-center justify-center rounded-xl border border-dashed border-[rgba(16,185,129,0.3)] p-4 text-center text-xs text-[#10B981]">
-            ✨ لا فرص ضائعة في آخر 30 يوماً — حصص الكوبونات تغطي الطلب بشكل ممتاز
+            ✨ لا فرص ضائعة في آخر {lostDays} يوماً — حصص الكوبونات تغطي الطلب بشكل ممتاز
           </div>
         ) : (
           <>
@@ -473,6 +599,20 @@ export default function MarketingTab({
                         strokeWidth="1"
                       />
                     )}
+                    {/* 🆕 R10: حلقة ذهبية عند تحويم صف كود — تُبرز أيام هذا الكود */}
+                    {hoveredCodeDayMap?.get(p.dayKey) != null && (
+                      <motion.circle
+                        cx={p.x}
+                        cy={p.y}
+                        r={5.5}
+                        fill="rgba(245,208,97,0.15)"
+                        stroke="#F5D061"
+                        strokeWidth="1.5"
+                        initial={{ scale: 0, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ duration: 0.25 }}
+                      />
+                    )}
                     {/* منطقة لمس عريضة لكل يوم */}
                     <rect
                       x={p.x - (lostChart.W / Math.max(1, lostChart.pts.length - 1)) / 2}
@@ -515,46 +655,69 @@ export default function MarketingTab({
               )}
             </div>
             <p className="mt-1.5 text-[10px] text-[#938E7E]">
-              مرّر المؤشر فوق الرسم لعرض تفاصيل كل يوم — القيم تقديرية للخصم الذي كان سيتحمله الكوبون
+              مرّر المؤشر فوق الرسم لعرض تفاصيل كل يوم — وحوّم صف كود أدناه لتُضيء أيامه على الرسم
             </p>
 
             {/* تفصيل الأكواد */}
             {lostReport && lostReport.codes.length > 0 && (
               <div className="mt-3 space-y-2">
-                {lostReport.codes.map((c, i) => (
-                  <motion.div
-                    key={c.code}
-                    initial={{ opacity: 0, x: 12 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.05 * i, duration: 0.3 }}
-                    className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-[rgba(212,175,55,0.14)] bg-[#041710] px-3 py-2"
-                  >
-                    <span dir="ltr" className="font-money text-xs font-extrabold tracking-wider text-[#F5D061]">
-                      {c.code}
-                    </span>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
-                        c.topReason === 'exhausted'
-                          ? 'border border-[rgba(239,68,68,0.4)] bg-[rgba(239,68,68,0.08)] text-[#EF4444]'
-                          : c.topReason === 'disabled'
-                            ? 'border border-[rgba(147,142,126,0.4)] bg-[rgba(147,142,126,0.08)] text-[#938E7E]'
-                            : 'border border-[rgba(245,158,11,0.4)] bg-[rgba(245,158,11,0.08)] text-[#F59E0B]'
+                {lostReport.codes.map((c, i) => {
+                  const rowHovered = lostRowHover === c.code
+                  const activeDays = c.daily.filter((x) => x.count > 0).length
+                  return (
+                    <motion.div
+                      key={c.code}
+                      initial={{ opacity: 0, x: 12 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.05 * i, duration: 0.3 }}
+                      onMouseEnter={() => setLostRowHover(c.code)}
+                      onMouseLeave={() => setLostRowHover(null)}
+                      className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-3 py-2 transition-all duration-200 ${
+                        rowHovered
+                          ? 'border-[rgba(245,208,97,0.65)] bg-[rgba(245,208,97,0.08)] shadow-md shadow-[rgba(212,175,55,0.15)]'
+                          : 'border-[rgba(212,175,55,0.14)] bg-[#041710] hover:border-[rgba(212,175,55,0.35)] hover:bg-[rgba(212,175,55,0.04)]'
                       }`}
+                      aria-label={`تفاصيل الكود ${c.code} — ${c.count} محاولات`}
                     >
-                      {REJECT_REASON_LABELS_MK[c.topReason] ?? c.topReason}
-                    </span>
-                    <span className="ms-auto text-[11px] text-[#C9C4B4]">
-                      <span className="ltr-nums font-money font-bold text-[#F8F5EE]">{c.count}</span> محاولات •
-                      هدر ≈{' '}
-                      <span className="ltr-nums font-money font-bold text-[#EF4444]">
-                        {c.lostLyd.toFixed(2)} د.ل
+                      <span dir="ltr" className="font-money text-xs font-extrabold tracking-wider text-[#F5D061]">
+                        {c.code}
                       </span>
-                    </span>
-                    {c.lastAt && (
-                      <span className="ltr-nums text-[9px] text-[#938E7E]">آخر محاولة {fmtDateTime(c.lastAt)}</span>
-                    )}
-                  </motion.div>
-                ))}
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
+                          c.topReason === 'exhausted'
+                            ? 'border border-[rgba(239,68,68,0.4)] bg-[rgba(239,68,68,0.08)] text-[#EF4444]'
+                            : c.topReason === 'disabled'
+                              ? 'border border-[rgba(147,142,126,0.4)] bg-[rgba(147,142,126,0.08)] text-[#938E7E]'
+                              : 'border border-[rgba(245,158,11,0.4)] bg-[rgba(245,158,11,0.08)] text-[#F59E0B]'
+                        }`}
+                      >
+                        {REJECT_REASON_LABELS_MK[c.topReason] ?? c.topReason}
+                      </span>
+                      {/* 🆕 R10: أيام نشطة — تُضيء نقاطها على الرسم عند التحويم */}
+                      {activeDays > 0 && (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[9px] font-bold transition-colors ${
+                            rowHovered
+                              ? 'bg-[rgba(245,208,97,0.18)] text-[#F5D061]'
+                              : 'bg-[rgba(212,175,55,0.08)] text-[#938E7E]'
+                          }`}
+                        >
+                          ⚡ نشط في <span className="ltr-nums font-money">{activeDays}</span> يوم
+                        </span>
+                      )}
+                      <span className="ms-auto text-[11px] text-[#C9C4B4]">
+                        <span className="ltr-nums font-money font-bold text-[#F8F5EE]">{c.count}</span> محاولات •
+                        هدر ≈{' '}
+                        <span className="ltr-nums font-money font-bold text-[#EF4444]">
+                          {c.lostLyd.toFixed(2)} د.ل
+                        </span>
+                      </span>
+                      {c.lastAt && (
+                        <span className="ltr-nums text-[9px] text-[#938E7E]">آخر محاولة {fmtDateTime(c.lastAt)}</span>
+                      )}
+                    </motion.div>
+                  )
+                })}
               </div>
             )}
           </>

@@ -1,0 +1,895 @@
+     1→     1→'use client'
+     2→     2→
+     3→     3→// ============================================================
+     4→     4→// 🎟️ تاب التسويق — غرفة عمليات واصل نالوت
+     5→     5→// إدارة كوبونات الخصم (إنشاء/تعطيل/إحصائيات) + أكواد شحن المحفظة
+     6→     6→// الخصم تتحمله المنصة كاملاً — دينار ليبي حصرياً
+     7→     7→// ============================================================
+     8→     8→import { useEffect, useMemo, useState } from 'react'
+     9→     9→import { motion } from 'framer-motion'
+    10→    10→import { Copy, Loader2, Plus, TicketPercent, Gift, TrendingDown } from 'lucide-react'
+    11→    11→import { Button } from '@/components/ui/button'
+    12→    12→import { Input } from '@/components/ui/input'
+    13→    13→import { Label } from '@/components/ui/label'
+    14→    14→import { Textarea } from '@/components/ui/textarea'
+    15→    15→import { Switch } from '@/components/ui/switch'
+    16→    16→import { Badge } from '@/components/ui/badge'
+    17→    17→import {
+    18→    18→  Dialog,
+    19→    19→  DialogContent,
+    20→    20→  DialogDescription,
+    21→    21→  DialogHeader,
+    22→    22→  DialogTitle,
+    23→    23→  DialogTrigger,
+    24→    24→} from '@/components/ui/dialog'
+    25→    25→import {
+    26→    26→  Select,
+    27→    27→  SelectContent,
+    28→    28→  SelectItem,
+    29→    29→  SelectTrigger,
+    30→    30→  SelectValue,
+    31→    31→} from '@/components/ui/select'
+    32→    32→import { useToast } from '@/hooks/use-toast'
+    33→    33→import { Ly } from '@/components/wasel/Badges'
+    34→    34→import { api } from '@/lib/wasel/api'
+    35→    35→import { fmtDateTime } from './admin-shared'
+    36→    36→import type { PromoAdmin, TopupCodeAdmin } from './admin-shared'
+    37→    37→
+    38→    38→/// 📉 تقرير الفرص الضائعة الشهري (CRON-R9)
+    39→    39→interface LostReport {
+    40→    40→  days: number
+    41→    41→  totals: { count: number; lostLyd: number }
+    42→    42→  series: { date: string; label: string; count: number; lostLyd: number }[]
+    43→    43→  codes: { code: string; count: number; lostLyd: number; topReason: string; lastAt: string | null }[]
+    44→    44→}
+    45→    45→
+    46→    46→const REJECT_REASON_LABELS_MK: Record<string, string> = {
+    47→    47→  exhausted: 'نفدت الحصة',
+    48→    48→  disabled: 'كوبون معطل',
+    49→    49→  min_not_met: 'تحت الحد الأدنى',
+    50→    50→  unknown: 'أخرى',
+    51→    51→}
+    52→    52→
+    53→    53→export interface CreatePromoInput {
+    54→    54→  code: string
+    55→    55→  label: string
+    56→    56→  description: string
+    57→    57→  emoji: string
+    58→    58→  kind: 'percent' | 'flat' | 'cashback'
+    59→    59→  percent?: number
+    60→    60→  flatLyd?: number
+    61→    61→  maxDiscountLyd?: number
+    62→    62→  minSubtotalLyd: number
+    63→    63→  maxUses?: number
+    64→    64→}
+    65→    65→
+    66→    66→function promoValueLabel(p: PromoAdmin): string {
+    67→    67→  if (p.kind === 'cashback') {
+    68→    68→    const cap = p.maxDiscountLyd != null ? ` حتى سقف ${p.maxDiscountLyd.toFixed(2)} د.ل` : ''
+    69→    69→    return p.percent != null && p.percent > 0 ? `إيداع ${p.percent}%${cap}` : `إيداع ${(p.flatLyd ?? 0).toFixed(2)} د.ل`
+    70→    70→  }
+    71→    71→  if (p.kind === 'flat') return `خصم ثابت ${(p.flatLyd ?? 0).toFixed(2)} د.ل`
+    72→    72→  const cap = p.maxDiscountLyd != null ? ` حتى سقف ${p.maxDiscountLyd.toFixed(2)} د.ل` : ''
+    73→    73→  return `خصم ${p.percent}%${cap}`
+    74→    74→}
+    75→    75→
+    76→    76→// ============================================================
+    77→    77→// بطاقة كوبون بشكل تذكرة مثقوبة
+    78→    78→// ============================================================
+    79→    79→function PromoTicket({
+    80→    80→  promo,
+    81→    81→  busy,
+    82→    82→  onToggle,
+    83→    83→}: {
+    84→    84→  promo: PromoAdmin
+    85→    85→  busy: boolean
+    86→    86→  onToggle: (next: boolean) => void
+    87→    87→}) {
+    88→    88→  return (
+    89→    89→    <motion.div
+    90→    90→      initial={{ opacity: 0, y: 8 }}
+    91→    91→      animate={{ opacity: 1, y: 0 }}
+    92→    92→      className={`relative overflow-hidden rounded-2xl border border-dashed p-4 transition-all ${
+    93→    93→        promo.isActive
+    94→    94→          ? 'border-[rgba(212,175,55,0.5)] bg-gradient-to-bl from-[#0A3324] via-[#062319] to-[#041710]'
+    95→    95→          : 'border-[rgba(147,142,126,0.3)] bg-[#041710]/70 opacity-70'
+    96→    96→      }`}
+    97→    97→    >
+    98→    98→      {/* ثقوب التذكرة */}
+    99→    99→      <span className="absolute -left-3 top-1/2 h-6 w-6 -translate-y-1/2 rounded-full bg-[#041710] ring-1 ring-[rgba(212,175,55,0.25)]" />
+   100→   100→      <span className="absolute -right-3 top-1/2 h-6 w-6 -translate-y-1/2 rounded-full bg-[#041710] ring-1 ring-[rgba(212,175,55,0.25)]" />
+   101→   101→
+   102→   102→      <div className="flex items-start justify-between gap-3">
+   103→   103→        <div className="flex min-w-0 items-start gap-3">
+   104→   104→          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[rgba(212,175,55,0.3)] bg-[#041710] text-2xl">
+   105→   105→            {promo.emoji}
+   106→   106→          </span>
+   107→   107→          <div className="min-w-0">
+   108→   108→            <p className="font-money ltr-nums text-sm font-black tracking-widest text-[#F5D061]" dir="ltr">
+   109→   109→              {promo.code}
+   110→   110→            </p>
+   111→   111→            <p className="mt-0.5 truncate text-xs font-extrabold text-[#F8F5EE]">{promo.label}</p>
+   112→   112→            <p className="mt-0.5 line-clamp-2 text-[10px] leading-relaxed text-[#938E7E]">{promo.description}</p>
+   113→   113→          </div>
+   114→   114→        </div>
+   115→   115→        <div className="flex shrink-0 flex-col items-end gap-2">
+   116→   116→          <Switch
+   117→   117→            checked={promo.isActive}
+   118→   118→            disabled={busy}
+   119→   119→            onCheckedChange={onToggle}
+   120→   120→            aria-label={`${promo.isActive ? 'تعطيل' : 'تفعيل'} الكوبون ${promo.code}`}
+   121→   121→          />
+   122→   122→          {promo.kind === 'cashback' && (
+   123→   123→            <Badge className="border-0 bg-[rgba(16,185,129,0.15)] px-2 py-0.5 text-[9px] font-bold text-[#10B981]">
+   124→   124→              💸 كاش باك
+   125→   125→            </Badge>
+   126→   126→          )}
+   127→   127→          <Badge
+   128→   128→            className={`border-0 px-2 py-0.5 text-[9px] font-bold ${
+   129→   129→              promo.isActive
+   130→   130→                ? 'bg-[rgba(16,185,129,0.15)] text-[#10B981]'
+   131→   131→                : 'bg-[rgba(147,142,126,0.15)] text-[#938E7E]'
+   132→   132→            }`}
+   133→   133→          >
+   134→   134→            {promo.isActive ? 'نشط' : 'مُعطّل'}
+   135→   135→          </Badge>
+   136→   136→        </div>
+   137→   137→      </div>
+   138→   138→
+   139→   139→      {/* خط perforation أفقي */}
+   140→   140→      <div className="my-3 border-t border-dashed border-[rgba(212,175,55,0.25)]" />
+   141→   141→
+   142→   142→      <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+   143→   143→        <div className="rounded-xl bg-[rgba(212,175,55,0.07)] px-2 py-2">
+   144→   144→          <p className="text-[10px] font-semibold text-[#938E7E]">{promo.kind === 'cashback' ? 'قيمة الإيداع' : 'قيمة الخصم'}</p>
+   145→   145→          <p className="mt-0.5 text-[11px] font-extrabold text-[#F8F5EE]">{promoValueLabel(promo)}</p>
+   146→   146→        </div>
+   147→   147→        <div className="rounded-xl bg-[rgba(212,175,55,0.07)] px-2 py-2">
+   148→   148→          <p className="text-[10px] font-semibold text-[#938E7E]">حد أدنى للطلب</p>
+   149→   149→          <p className="mt-0.5 text-[11px] font-extrabold text-[#F8F5EE]">
+   150→   150→            {promo.minSubtotalLyd > 0 ? `${promo.minSubtotalLyd.toFixed(2)} د.ل` : 'بلا حد'}
+   151→   151→          </p>
+   152→   152→        </div>
+   153→   153→        <div className="rounded-xl bg-[rgba(16,185,129,0.08)] px-2 py-2">
+   154→   154→          <p className="text-[10px] font-semibold text-[#938E7E]">مرات الاستخدام</p>
+   155→   155→          <p className="font-money ltr-nums mt-0.5 text-[11px] font-extrabold text-[#10B981]">
+   156→   156→            {promo.maxUses != null ? `${promo.usedCount} / ${promo.maxUses}` : promo.usedCount}
+   157→   157→          </p>
+   158→   158→          {promo.maxUses != null && (
+   159→   159→            <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-[rgba(212,175,55,0.15)]">
+   160→   160→              <div
+   161→   161→                className={`h-full rounded-full ${
+   162→   162→                  promo.usedCount >= promo.maxUses
+   163→   163→                    ? 'bg-[#EF4444]'
+   164→   164→                    : promo.usedCount / promo.maxUses >= 0.75
+   165→   165→                      ? 'bg-[#F59E0B]'
+   166→   166→                      : 'bg-[#10B981]'
+   167→   167→                }`}
+   168→   168→                style={{ width: `${Math.min(100, (promo.usedCount / promo.maxUses) * 100)}%` }}
+   169→   169→              />
+   170→   170→            </div>
+   171→   171→          )}
+   172→   172→        </div>
+   173→   173→        <div className="rounded-xl bg-[rgba(16,185,129,0.08)] px-2 py-2">
+   174→   174→          <p className="text-[10px] font-semibold text-[#938E7E]">إجمالي ما وُفّر</p>
+   175→   175→          <Ly amount={promo.totalDiscountLyd} bold className="text-[11px] text-[#10B981]" />
+   176→   176→        </div>
+   177→   177→      </div>
+   178→   178→      <p className="font-money ltr-nums mt-2 text-[9px] text-[#938E7E]/60">
+   179→   179→        أُنشئ: {fmtDateTime(promo.createdAt)} • الخصم على حساب المنصة (تسويق)
+   180→   180→      </p>
+   181→   181→    </motion.div>
+   182→   182→  )
+   183→   183→}
+   184→   184→
+   185→   185→// ============================================================
+   186→   186→// صف كود شحن
+   187→   187→// ============================================================
+   188→   188→function TopupCodeRow({
+   189→   189→  code,
+   190→   190→  busy,
+   191→   191→  onToggle,
+   192→   192→}: {
+   193→   193→  code: TopupCodeAdmin
+   194→   194→  busy: boolean
+   195→   195→  onToggle: (next: boolean) => void
+   196→   196→}) {
+   197→   197→  const { toast } = useToast()
+   198→   198→  const used = !!code.usedByPhone
+   199→   199→  const stateLabel = used ? 'مستهلك' : code.isActive ? 'نشط' : 'مُعطّل'
+   200→   200→  const stateClass = used
+   201→   201→    ? 'bg-[rgba(147,142,126,0.15)] text-[#938E7E]'
+   202→   202→    : code.isActive
+   203→   203→      ? 'bg-[rgba(16,185,129,0.15)] text-[#10B981]'
+   204→   204→      : 'bg-[rgba(245,158,11,0.15)] text-[#F59E0B]'
+   205→   205→
+   206→   206→  const copy = async () => {
+   207→   207→    try {
+   208→   208→      await navigator.clipboard.writeText(code.code)
+   209→   209→      toast({ title: '📋 نُسخ الكود', description: code.code })
+   210→   210→    } catch {
+   211→   211→      toast({ title: code.code, description: 'انسخ الكود يدوياً' })
+   212→   212→    }
+   213→   213→  }
+   214→   214→
+   215→   215→  return (
+   216→   216→    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[rgba(212,175,55,0.18)] bg-[#041710] px-3 py-2.5">
+   217→   217→      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0A3324] text-lg">
+   218→   218→        🎁
+   219→   219→      </span>
+   220→   220→      <div className="min-w-0 flex-1">
+   221→   221→        <p className="font-money ltr-nums text-xs font-black tracking-wider text-[#F5D061]" dir="ltr">
+   222→   222→          {code.code}
+   223→   223→        </p>
+   224→   224→        <p className="mt-0.5 text-[10px] text-[#938E7E]">
+   225→   225→          {used ? (
+   226→   226→            <>
+   227→   227→              استهلكه <span dir="ltr" className="font-money">{code.usedByPhone}</span>
+   228→   228→            </>
+   229→   229→          ) : (
+   230→   230→            code.note || 'كود شحن محفظة — يُستخدم مرة واحدة'
+   231→   231→          )}
+   232→   232→          {' • '}
+   233→   233→          <span className="font-money ltr-nums">{fmtDateTime(code.createdAt)}</span>
+   234→   234→        </p>
+   235→   235→      </div>
+   236→   236→      <Ly amount={code.amountLyd} bold className="text-sm text-[#10B981]" />
+   237→   237→      <Badge className={`border-0 px-2 py-0.5 text-[9px] font-bold ${stateClass}`}>{stateLabel}</Badge>
+   238→   238→      <div className="flex items-center gap-1.5">
+   239→   239→        <button
+   240→   240→          onClick={copy}
+   241→   241→          aria-label={`نسخ الكود ${code.code}`}
+   242→   242→          className="flex h-11 w-11 items-center justify-center rounded-lg text-[#938E7E] transition hover:bg-[rgba(212,175,55,0.12)] hover:text-[#F5D061]"
+   243→   243→        >
+   244→   244→          <Copy className="h-4 w-4" />
+   245→   245→        </button>
+   246→   246→        {!used && (
+   247→   247→          <Switch
+   248→   248→            checked={code.isActive}
+   249→   249→            disabled={busy}
+   250→   250→            onCheckedChange={onToggle}
+   251→   251→            aria-label={`${code.isActive ? 'تعطيل' : 'تفعيل'} كود الشحن ${code.code}`}
+   252→   252→          />
+   253→   253→        )}
+   254→   254→      </div>
+   255→   255→    </div>
+   256→   256→  )
+   257→   257→}
+   258→   258→
+   259→   259→// ============================================================
+   260→   260→// التاب الرئيسي
+   261→   261→// ============================================================
+   262→   262→export default function MarketingTab({
+   263→   263→  promos,
+   264→   264→  codes,
+   265→   265→  busyKey,
+   266→   266→  pin,
+   267→   267→  onCreatePromo,
+   268→   268→  onTogglePromo,
+   269→   269→  onGenerateCodes,
+   270→   270→  onToggleCode,
+   271→   271→}: {
+   272→   272→  promos: PromoAdmin[] | null
+   273→   273→  codes: TopupCodeAdmin[] | null
+   274→   274→  busyKey: string | null
+   275→   275→  /** درع الـ PIN — لجلب تقرير الفرص الضائعة من الخادم */
+   276→   276→  pin: string
+   277→   277→  onCreatePromo: (data: CreatePromoInput) => Promise<boolean>
+   278→   278→  onTogglePromo: (code: string, next: boolean) => Promise<void>
+   279→   279→  onGenerateCodes: (amount: number, count: number, note: string) => Promise<boolean>
+   280→   280→  onToggleCode: (code: string, next: boolean) => Promise<void>
+   281→   281→}) {
+   282→   282→  const { toast } = useToast()
+   283→   283→
+   284→   284→  // ---------- 📉 تقرير الفرص الضائعة (30 يوماً) ----------
+   285→   285→  const [lostReport, setLostReport] = useState<LostReport | null>(null)
+   286→   286→  const [lostLoading, setLostLoading] = useState(true)
+   287→   287→  const [lostHover, setLostHover] = useState<number | null>(null)
+   288→   288→
+   289→   289→  useEffect(() => {
+   290→   290→    let alive = true
+   291→   291→    api<LostReport>('/api/admin/promos/report?days=30', {
+   292→   292→      headers: { 'x-admin-pin': pin },
+   293→   293→    })
+   294→   294→      .then((r) => {
+   295→   295→        if (alive) setLostReport(r)
+   296→   296→      })
+   297→   297→      .catch(() => {
+   298→   298→        /* التقرير تحليلي — فشله لا يعطّل التاب */
+   299→   299→      })
+   300→   300→      .finally(() => {
+   301→   301→        if (alive) setLostLoading(false)
+   302→   302→      })
+   303→   303→    return () => {
+   304→   304→      alive = false
+   305→   305→    }
+   306→   306→  }, [pin])
+   307→   307→
+   308→   308→  // ---------- حالة نموذج إنشاء كوبون ----------
+   309→   309→  const [createOpen, setCreateOpen] = useState(false)
+   310→   310→  const [pCode, setPCode] = useState('')
+   311→   311→  const [pLabel, setPLabel] = useState('')
+   312→   312→  const [pDesc, setPDesc] = useState('')
+   313→   313→  const [pEmoji, setPEmoji] = useState('🎟️')
+   314→   314→  const [pKind, setPKind] = useState<'percent' | 'flat' | 'cashback'>('percent')
+   315→   315→  const [pPercent, setPPercent] = useState('10')
+   316→   316→  const [pFlat, setPFlat] = useState('5')
+   317→   317→  const [pCap, setPCap] = useState('')
+   318→   318→  const [pMin, setPMin] = useState('0')
+   319→   319→  const [pMaxUses, setPMaxUses] = useState('')
+   320→   320→
+   321→   321→  const submitPromo = async () => {
+   322→   322→    const ok = await onCreatePromo({
+   323→   323→      code: pCode,
+   324→   324→      label: pLabel,
+   325→   325→      description: pDesc,
+   326→   326→      emoji: pEmoji || '🎟️',
+   327→   327→      kind: pKind,
+   328→   328→      percent: pKind === 'percent' ? Number(pPercent) : undefined,
+   329→   329→      flatLyd: pKind === 'flat' ? Number(pFlat) : undefined,
+   330→   330→      maxDiscountLyd: pCap.trim() ? Number(pCap) : undefined,
+   331→   331→      minSubtotalLyd: Number(pMin || '0'),
+   332→   332→      maxUses: pMaxUses.trim() ? Number(pMaxUses) : undefined,
+   333→   333→    })
+   334→   334→    if (ok) {
+   335→   335→      setCreateOpen(false)
+   336→   336→      setPCode('')
+   337→   337→      setPLabel('')
+   338→   338→      setPDesc('')
+   339→   339→      setPCap('')
+   340→   340→      setPMaxUses('')
+   341→   341→      setPMin('0')
+   342→   342→    }
+   343→   343→  }
+   344→   344→
+   345→   345→  // ---------- حالة توليد أكواد شحن ----------
+   346→   346→  const [giftOpen, setGiftOpen] = useState(false)
+   347→   347→  const [gAmount, setGAmount] = useState('25')
+   348→   348→  const [gCount, setGCount] = useState('5')
+   349→   349→  const [gNote, setGNote] = useState('')
+   350→   350→
+   351→   351→  const submitGifts = async () => {
+   352→   352→    const ok = await onGenerateCodes(Number(gAmount), Number(gCount), gNote)
+   353→   353→    if (ok) setGiftOpen(false)
+   354→   354→  }
+   355→   355→
+   356→   356→  const activePromos = promos?.filter((p) => p.isActive) ?? []
+   357→   357→  const totalUsed = promos?.reduce((n, p) => n + p.usedCount, 0) ?? 0
+   358→   358→  const totalDiscount = promos?.reduce((n, p) => n + p.totalDiscountLyd, 0) ?? 0
+   359→   359→
+   360→   360→  // 📉 هندسة سباركلاين الفرص الضائعة
+   361→   361→  const lostChart = useMemo(() => {
+   362→   362→    const series = lostReport?.series ?? []
+   363→   363→    if (series.length === 0) return null
+   364→   364→    const W = 640
+   365→   365→    const H = 120
+   366→   366→    const PAD_X = 10
+   367→   367→    const PAD_TOP = 12
+   368→   368→    const PAD_BOTTOM = 20
+   369→   369→    const maxLost = Math.max(...series.map((d) => d.lostLyd), 1)
+   370→   370→    const stepX = (W - PAD_X * 2) / Math.max(1, series.length - 1)
+   371→   371→    const pts = series.map((d, i) => ({
+   372→   372→      x: PAD_X + i * stepX,
+   373→   373→      y: PAD_TOP + (1 - d.lostLyd / maxLost) * (H - PAD_TOP - PAD_BOTTOM),
+   374→   374→      ...d,
+   375→   375→    }))
+   376→   376→    const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+   377→   377→    const areaPath = `${linePath} L${pts[pts.length - 1].x.toFixed(1)},${H - PAD_BOTTOM} L${pts[0].x.toFixed(1)},${H - PAD_BOTTOM} Z`
+   378→   378→    return { W, H, pts, linePath, areaPath }
+   379→   379→  }, [lostReport])
+   380→   380→  const giftStats = (() => {
+   381→   381→    const list = codes ?? []
+   382→   382→    const used = list.filter((c) => c.usedByPhone).length
+   383→   383→    const active = list.filter((c) => !c.usedByPhone && c.isActive).length
+   384→   384→    const redeemed = list.filter((c) => c.usedByPhone).reduce((n, c) => n + c.amountLyd, 0)
+   385→   385→    return { used, active, redeemed }
+   386→   386→  })()
+   387→   387→
+   388→   388→  return (
+   389→   389→    <div className="space-y-6">
+   390→   390→      {/* ======= 📉 تقرير الفرص الضائعة — آخر 30 يوماً (CRON-R9) ======= */}
+   391→   391→      <section className="rounded-2xl border border-[rgba(239,68,68,0.25)] bg-[#062319] p-4">
+   392→   392→        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+   393→   393→          <div className="flex items-center gap-3">
+   394→   394→            <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-[rgba(239,68,68,0.3)] bg-[#041710] text-xl">
+   395→   395→              📉
+   396→   396→            </span>
+   397→   397→            <div>
+   398→   398→              <h3 className="text-sm font-extrabold text-[#F8F5EE]">تقرير الفرص الضائعة — آخر 30 يوماً</h3>
+   399→   399→              <p className="text-[10px] text-[#938E7E]">
+   400→   400→                زبائن حاولوا كوبوناً نفدت حصته أو قِطع شرطه — كل محاولة عميل محتمل انسحب
+   401→   401→              </p>
+   402→   402→            </div>
+   403→   403→          </div>
+   404→   404→          {lostReport && (
+   405→   405→            <div className="flex flex-wrap gap-2 text-[11px]">
+   406→   406→              <span className="rounded-full border border-[rgba(239,68,68,0.4)] bg-[rgba(239,68,68,0.08)] px-2.5 py-1 font-bold text-[#EF4444]">
+   407→   407→                <span className="ltr-nums font-money">{lostReport.totals.count}</span> محاولة مرفوضة
+   408→   408→              </span>
+   409→   409→              <span className="rounded-full border border-[rgba(212,175,55,0.4)] bg-[rgba(212,175,55,0.08)] px-2.5 py-1 font-bold text-[#F5D061]">
+   410→   410→                ≈ <Ly amount={lostReport.totals.lostLyd} bold /> قيمة مهدورة
+   411→   411→              </span>
+   412→   412→            </div>
+   413→   413→          )}
+   414→   414→        </div>
+   415→   415→
+   416→   416→        {lostLoading ? (
+   417→   417→          <div className="space-y-3" aria-label="جارٍ تحميل التقرير">
+   418→   418→            <span className="shimmer block h-20 w-full rounded-xl" />
+   419→   419→            <span className="shimmer block h-10 w-full rounded-xl" />
+   420→   420→          </div>
+   421→   421→        ) : !lostChart || lostReport?.totals.count === 0 ? (
+   422→   422→          <div className="flex min-h-20 items-center justify-center rounded-xl border border-dashed border-[rgba(16,185,129,0.3)] p-4 text-center text-xs text-[#10B981]">
+   423→   423→            ✨ لا فرص ضائعة في آخر 30 يوماً — حصص الكوبونات تغطي الطلب بشكل ممتاز
+   424→   424→          </div>
+   425→   425→        ) : (
+   426→   426→          <>
+   427→   427→            {/* 📈 السلسلة اليومية للقيمة المهدورة */}
+   428→   428→            <div className="relative">
+   429→   429→              <svg
+   430→   430→                viewBox={`0 0 ${lostChart.W} ${lostChart.H}`}
+   431→   431→                className="w-full"
+   432→   432→                role="img"
+   433→   433→                aria-label="قيمة الفرص الضائعة يومياً خلال ثلاثين يوماً"
+   434→   434→              >
+   435→   435→                <defs>
+   436→   436→                  <linearGradient id="lostSparkFill" x1="0" y1="0" x2="0" y2="1">
+   437→   437→                    <stop offset="0%" stopColor="#EF4444" stopOpacity="0.3" />
+   438→   438→                    <stop offset="100%" stopColor="#EF4444" stopOpacity="0.02" />
+   439→   439→                  </linearGradient>
+   440→   440→                </defs>
+   441→   441→                {[0.5].map((f) => (
+   442→   442→                  <line
+   443→   443→                    key={f}
+   444→   444→                    x1="10"
+   445→   445→                    x2={lostChart.W - 10}
+   446→   446→                    y1={12 + f * (lostChart.H - 32)}
+   447→   447→                    y2={12 + f * (lostChart.H - 32)}
+   448→   448→                    stroke="rgba(212,175,55,0.08)"
+   449→   449→                    strokeDasharray="3 5"
+   450→   450→                  />
+   451→   451→                ))}
+   452→   452→                <path d={lostChart.areaPath} fill="url(#lostSparkFill)" />
+   453→   453→                <motion.path
+   454→   454→                  d={lostChart.linePath}
+   455→   455→                  fill="none"
+   456→   456→                  stroke="#EF4444"
+   457→   457→                  strokeWidth="2"
+   458→   458→                  strokeLinecap="round"
+   459→   459→                  strokeLinejoin="round"
+   460→   460→                  initial={{ pathLength: 0 }}
+   461→   461→                  animate={{ pathLength: 1 }}
+   462→   462→                  transition={{ duration: 1.2, ease: 'easeInOut' }}
+   463→   463→                />
+   464→   464→                {lostChart.pts.map((p, i) => (
+   465→   465→                  <g key={p.date}>
+   466→   466→                    {p.lostLyd > 0 && (
+   467→   467→                      <circle
+   468→   468→                        cx={p.x}
+   469→   469→                        cy={p.y}
+   470→   470→                        r={lostHover === i ? 4 : 2.6}
+   471→   471→                        fill={lostHover === i ? '#F5D061' : '#EF4444'}
+   472→   472→                        stroke="#041710"
+   473→   473→                        strokeWidth="1"
+   474→   474→                      />
+   475→   475→                    )}
+   476→   476→                    {/* منطقة لمس عريضة لكل يوم */}
+   477→   477→                    <rect
+   478→   478→                      x={p.x - (lostChart.W / Math.max(1, lostChart.pts.length - 1)) / 2}
+   479→   479→                      y={0}
+   480→   480→                      width={lostChart.W / Math.max(1, lostChart.pts.length - 1)}
+   481→   481→                      height={lostChart.H}
+   482→   482→                      fill="transparent"
+   483→   483→                      onMouseEnter={() => setLostHover(i)}
+   484→   484→                      onMouseLeave={() => setLostHover(null)}
+   485→   485→                    />
+   486→   486→                  </g>
+   487→   487→                ))}
+   488→   488→                {lostHover != null && (
+   489→   489→                  <line
+   490→   490→                    x1={lostChart.pts[lostHover].x}
+   491→   491→                    x2={lostChart.pts[lostHover].x}
+   492→   492→                    y1="4"
+   493→   493→                    y2={lostChart.H - 18}
+   494→   494→                    stroke="rgba(245,208,97,0.55)"
+   495→   495→                    strokeDasharray="3 3"
+   496→   496→                  />
+   497→   497→                )}
+   498→   498→              </svg>
+   499→   499→              {lostHover != null && lostChart.pts[lostHover] && (
+   500→   500→                <div
+   501→   501→                  className="chart-tip"
+   502→   502→                  style={{
+   503→   503→                    left: `${Math.min(Math.max((lostChart.pts[lostHover].x / lostChart.W) * 100, 12), 88)}%`,
+   504→   504→                    top: `${(lostChart.pts[lostHover].y / lostChart.H) * 100}%`,
+   505→   505→                  }}
+   506→   506→                >
+   507→   507→                  <p className="text-[10px] font-bold text-[#F5D061]">{lostChart.pts[lostHover].label}</p>
+   508→   508→                  <p className="ltr-nums font-money text-sm font-extrabold text-[#F8F5EE]">
+   509→   509→                    {lostChart.pts[lostHover].lostLyd.toFixed(2)} د.ل
+   510→   510→                  </p>
+   511→   511→                  <p className="text-[9px] text-[#938E7E]">
+   512→   512→                    <span className="ltr-nums font-money">{lostChart.pts[lostHover].count}</span> محاولة مرفوضة
+   513→   513→                  </p>
+   514→   514→                </div>
+   515→   515→              )}
+   516→   516→            </div>
+   517→   517→            <p className="mt-1.5 text-[10px] text-[#938E7E]">
+   518→   518→              مرّر المؤشر فوق الرسم لعرض تفاصيل كل يوم — القيم تقديرية للخصم الذي كان سيتحمله الكوبون
+   519→   519→            </p>
+   520→   520→
+   521→   521→            {/* تفصيل الأكواد */}
+   522→   522→            {lostReport && lostReport.codes.length > 0 && (
+   523→   523→              <div className="mt-3 space-y-2">
+   524→   524→                {lostReport.codes.map((c, i) => (
+   525→   525→                  <motion.div
+   526→   526→                    key={c.code}
+   527→   527→                    initial={{ opacity: 0, x: 12 }}
+   528→   528→                    animate={{ opacity: 1, x: 0 }}
+   529→   529→                    transition={{ delay: 0.05 * i, duration: 0.3 }}
+   530→   530→                    className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-[rgba(212,175,55,0.14)] bg-[#041710] px-3 py-2"
+   531→   531→                  >
+   532→   532→                    <span dir="ltr" className="font-money text-xs font-extrabold tracking-wider text-[#F5D061]">
+   533→   533→                      {c.code}
+   534→   534→                    </span>
+   535→   535→                    <span
+   536→   536→                      className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
+   537→   537→                        c.topReason === 'exhausted'
+   538→   538→                          ? 'border border-[rgba(239,68,68,0.4)] bg-[rgba(239,68,68,0.08)] text-[#EF4444]'
+   539→   539→                          : c.topReason === 'disabled'
+   540→   540→                            ? 'border border-[rgba(147,142,126,0.4)] bg-[rgba(147,142,126,0.08)] text-[#938E7E]'
+   541→   541→                            : 'border border-[rgba(245,158,11,0.4)] bg-[rgba(245,158,11,0.08)] text-[#F59E0B]'
+   542→   542→                      }`}
+   543→   543→                    >
+   544→   544→                      {REJECT_REASON_LABELS_MK[c.topReason] ?? c.topReason}
+   545→   545→                    </span>
+   546→   546→                    <span className="ms-auto text-[11px] text-[#C9C4B4]">
+   547→   547→                      <span className="ltr-nums font-money font-bold text-[#F8F5EE]">{c.count}</span> محاولات •
+   548→   548→                      هدر ≈{' '}
+   549→   549→                      <span className="ltr-nums font-money font-bold text-[#EF4444]">
+   550→   550→                        {c.lostLyd.toFixed(2)} د.ل
+   551→   551→                      </span>
+   552→   552→                    </span>
+   553→   553→                    {c.lastAt && (
+   554→   554→                      <span className="ltr-nums text-[9px] text-[#938E7E]">آخر محاولة {fmtDateTime(c.lastAt)}</span>
+   555→   555→                    )}
+   556→   556→                  </motion.div>
+   557→   557→                ))}
+   558→   558→              </div>
+   559→   559→            )}
+   560→   560→          </>
+   561→   561→        )}
+   562→   562→      </section>
+   563→   563→
+   564→   564→      {/* ======= كوبونات الخصم ======= */}
+   565→   565→      <section className="rounded-2xl border border-[rgba(212,175,55,0.2)] bg-[#062319] p-4">
+   566→   566→        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+   567→   567→          <div className="flex items-center gap-3">
+   568→   568→            <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-[rgba(212,175,55,0.3)] bg-[#041710] text-xl">
+   569→   569→              🎟️
+   570→   570→            </span>
+   571→   571→            <div>
+   572→   572→              <h3 className="text-sm font-extrabold text-[#F8F5EE]">كوبونات الخصم</h3>
+   573→   573→              <p className="text-[10px] text-[#938E7E]">
+   574→   574→                الخصم تتحمله المنصة كاملاً — لا يمس حصة المتجر ولا أجرة الكابتن
+   575→   575→              </p>
+   576→   576→            </div>
+   577→   577→          </div>
+   578→   578→          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+   579→   579→            <DialogTrigger asChild>
+   580→   580→              <Button className="gold-sweep min-h-12 rounded-xl bg-gradient-to-l from-[#D4AF37] to-[#F5D061] px-4 text-xs font-extrabold text-[#041710] shadow-md shadow-[rgba(212,175,55,0.2)]">
+   581→   581→                <Plus className="h-4 w-4" />
+   582→   582→                كوبون جديد
+   583→   583→              </Button>
+   584→   584→            </DialogTrigger>
+   585→   585→            <DialogContent className="border-[rgba(212,175,55,0.35)] bg-[#062319] sm:max-w-md">
+   586→   586→              <DialogHeader>
+   587→   587→                <DialogTitle className="gold-text text-base font-extrabold">🎟️ إنشاء كوبون خصم</DialogTitle>
+   588→   588→                <DialogDescription className="text-[11px] text-[#938E7E]">
+   589→   589→                  يظهر فوراً على الزبائن في الدفع وصفحة الهبوط — التحقق خادمي بالكامل
+   590→   590→                </DialogDescription>
+   591→   591→              </DialogHeader>
+   592→   592→              <div className="space-y-3.5">
+   593→   593→                <div className="grid grid-cols-2 gap-3">
+   594→   594→                  <div className="space-y-1.5">
+   595→   595→                    <Label className="text-[11px] font-bold text-[#938E7E]">الكود (إنجليزي)</Label>
+   596→   596→                    <Input
+   597→   597→                      dir="ltr"
+   598→   598→                      value={pCode}
+   599→   599→                      onChange={(e) => setPCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+   600→   600→                      placeholder="RAMADAN20"
+   601→   601→                      maxLength={16}
+   602→   602→                      className="h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center font-money text-sm tracking-widest text-[#F8F5EE]"
+   603→   603→                    />
+   604→   604→                  </div>
+   605→   605→                  <div className="space-y-1.5">
+   606→   606→                    <Label className="text-[11px] font-bold text-[#938E7E]">الاسم العربي</Label>
+   607→   607→                    <Input
+   608→   608→                      value={pLabel}
+   609→   609→                      onChange={(e) => setPLabel(e.target.value)}
+   610→   610→                      placeholder="خصم رمضان"
+   611→   611→                      maxLength={60}
+   612→   612→                      className="h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-sm text-[#F8F5EE]"
+   613→   613→                    />
+   614→   614→                  </div>
+   615→   615→                </div>
+   616→   616→                <div className="space-y-1.5">
+   617→   617→                  <Label className="text-[11px] font-bold text-[#938E7E]">الوصف للزبون</Label>
+   618→   618→                  <Textarea
+   619→   619→                    value={pDesc}
+   620→   620→                    onChange={(e) => setPDesc(e.target.value)}
+   621→   621→                    rows={2}
+   622→   622→                    maxLength={140}
+   623→   623→                    placeholder="20% على كل الطلبات حتى سقف 12 د.ل — طوال شهر رمضان"
+   624→   624→                    className="resize-none rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-xs leading-relaxed text-[#F8F5EE]"
+   625→   625→                  />
+   626→   626→                </div>
+   627→   627→                <div className="grid grid-cols-3 gap-3">
+   628→   628→                  <div className="space-y-1.5">
+   629→   629→                    <Label className="text-[11px] font-bold text-[#938E7E]">النوع</Label>
+   630→   630→                    <Select value={pKind} onValueChange={(v) => setPKind(v as 'percent' | 'flat' | 'cashback')}>
+   631→   631→                      <SelectTrigger className="h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-xs font-bold text-[#F8F5EE]">
+   632→   632→                        <SelectValue />
+   633→   633→                      </SelectTrigger>
+   634→   634→                      <SelectContent className="border-[rgba(212,175,55,0.35)] bg-[#062319] text-[#F8F5EE]">
+   635→   635→                        <SelectItem value="percent">نسبة %</SelectItem>
+   636→   636→                        <SelectItem value="flat">مبلغ ثابت</SelectItem>
+   637→   637→                        <SelectItem value="cashback">💸 كاش باك محفظة</SelectItem>
+   638→   638→                      </SelectContent>
+   639→   639→                    </Select>
+   640→   640→                  </div>
+   641→   641→                  {pKind !== 'flat' ? (
+   642→   642→                    <div className="space-y-1.5">
+   643→   643→                      <Label className="text-[11px] font-bold text-[#938E7E]">
+   644→   644→                        {pKind === 'cashback' ? 'نسبة الإيداع %' : 'النسبة %'}
+   645→   645→                      </Label>
+   646→   646→                      <Input
+   647→   647→                        dir="ltr"
+   648→   648→                        type="number"
+   649→   649→                        min={1}
+   650→   650→                        max={90}
+   651→   651→                        value={pPercent}
+   652→   652→                        onChange={(e) => setPPercent(e.target.value)}
+   653→   653→                        className="font-money h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center text-sm text-[#F8F5EE]"
+   654→   654→                      />
+   655→   655→                    </div>
+   656→   656→                  ) : (
+   657→   657→                    <div className="space-y-1.5">
+   658→   658→                      <Label className="text-[11px] font-bold text-[#938E7E]">المبلغ (د.ل)</Label>
+   659→   659→                      <Input
+   660→   660→                        dir="ltr"
+   661→   661→                        type="number"
+   662→   662→                        min={0.5}
+   663→   663→                        step={0.5}
+   664→   664→                        value={pFlat}
+   665→   665→                        onChange={(e) => setPFlat(e.target.value)}
+   666→   666→                        className="font-money h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center text-sm text-[#F8F5EE]"
+   667→   667→                      />
+   668→   668→                    </div>
+   669→   669→                  )}
+   670→   670→                  <div className="space-y-1.5">
+   671→   671→                    <Label className="text-[11px] font-bold text-[#938E7E]">السقف (اختياري)</Label>
+   672→   672→                    <Input
+   673→   673→                      dir="ltr"
+   674→   674→                      type="number"
+   675→   675→                      min={0.5}
+   676→   676→                      step={0.5}
+   677→   677→                      value={pCap}
+   678→   678→                      onChange={(e) => setPCap(e.target.value)}
+   679→   679→                      placeholder="—"
+   680→   680→                      className="font-money h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center text-sm text-[#F8F5EE] placeholder:text-[#938E7E]/40"
+   681→   681→                    />
+   682→   682→                  </div>
+   683→   683→                </div>
+   684→   684→                {pKind === 'cashback' && (
+   685→   685→                  <p className="rounded-xl border border-[rgba(16,185,129,0.35)] bg-[rgba(16,185,129,0.07)] px-3 py-2.5 text-[10.5px] font-bold leading-relaxed text-[#10B981]">
+   686→   686→                    💸 كاش باك: لا يخصم من الفاتورة — عند اكتمال التوصيل تُودع القيمة مباشرة في محفظة الزبون من ميزانية تسويق المنصة (قيد مزدوج موثّق).
+   687→   687→                  </p>
+   688→   688→                )}
+   689→   689→                <div className="grid grid-cols-2 gap-3">
+   690→   690→                  <div className="space-y-1.5">
+   691→   691→                    <Label className="text-[11px] font-bold text-[#938E7E]">حد أدنى للطلب (د.ل)</Label>
+   692→   692→                    <Input
+   693→   693→                      dir="ltr"
+   694→   694→                      type="number"
+   695→   695→                      min={0}
+   696→   696→                      step={1}
+   697→   697→                      value={pMin}
+   698→   698→                      onChange={(e) => setPMin(e.target.value)}
+   699→   699→                      className="font-money h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center text-sm text-[#F8F5EE]"
+   700→   700→                    />
+   701→   701→                  </div>
+   702→   702→                  <div className="space-y-1.5">
+   703→   703→                    <Label className="text-[11px] font-bold text-[#938E7E]">الإيموجي</Label>
+   704→   704→                    <Input
+   705→   705→                      value={pEmoji}
+   706→   706→                      onChange={(e) => setPEmoji(e.target.value)}
+   707→   707→                      maxLength={4}
+   708→   708→                      className="h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center text-lg"
+   709→   709→                    />
+   710→   710→                  </div>
+   711→   711→                </div>
+   712→   712→                <div className="space-y-1.5">
+   713→   713→                  <Label className="text-[11px] font-bold text-[#938E7E]">
+   714→   714→                    حصة الاستخدام (اختياري) — <span className="text-[#F59E0B]">تنفد عند الاستنفاد</span>
+   715→   715→                  </Label>
+   716→   716→                  <Input
+   717→   717→                    dir="ltr"
+   718→   718→                    type="number"
+   719→   719→                    min={1}
+   720→   720→                    step={1}
+   721→   721→                    value={pMaxUses}
+   722→   722→                    onChange={(e) => setPMaxUses(e.target.value)}
+   723→   723→                    placeholder="مثال: 100 — اتركه فارغاً لغير محدود"
+   724→   724→                    className="font-money h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center text-sm text-[#F8F5EE] placeholder:text-[#938E7E]/40"
+   725→   725→                  />
+   726→   726→                  {pMaxUses.trim() && Number(pMaxUses) > 0 && (
+   727→   727→                    <p className="text-[10px] font-bold text-[#F59E0B]">
+   728→   728→                      🔥 سيظهر للزبائن شارة «متبقٍ {pMaxUses} استخدامات» وتنطفئ تلقائياً عند النفاد
+   729→   729→                    </p>
+   730→   730→                  )}
+   731→   731→                </div>
+   732→   732→                <Button
+   733→   733→                  onClick={() => void submitPromo()}
+   734→   734→                  disabled={busyKey === 'promo:create' || !pCode.trim() || !pLabel.trim()}
+   735→   735→                  className="h-12 w-full rounded-xl bg-gradient-to-l from-[#D4AF37] to-[#F5D061] text-sm font-extrabold text-[#041710]"
+   736→   736→                >
+   737→   737→                  {busyKey === 'promo:create' ? <Loader2 className="h-4 w-4 animate-spin" /> : <TicketPercent className="h-4 w-4" />}
+   738→   738→                  إنشاء الكوبون ونشره فوراً
+   739→   739→                </Button>
+   740→   740→              </div>
+   741→   741→            </DialogContent>
+   742→   742→          </Dialog>
+   743→   743→        </div>
+   744→   744→
+   745→   745→        {/* إحصائيات سريعة */}
+   746→   746→        <div className="mb-4 grid grid-cols-3 gap-2">
+   747→   747→          <div className="rounded-xl bg-[rgba(212,175,55,0.08)] px-3 py-2.5 text-center">
+   748→   748→            <p className="font-money ltr-nums text-xl font-bold text-[#F5D061]">{activePromos.length}</p>
+   749→   749→            <p className="text-[10px] font-semibold text-[#938E7E]">كوبون نشط</p>
+   750→   750→          </div>
+   751→   751→          <div className="rounded-xl bg-[rgba(16,185,129,0.08)] px-3 py-2.5 text-center">
+   752→   752→            <p className="font-money ltr-nums text-xl font-bold text-[#10B981]">{totalUsed}</p>
+   753→   753→            <p className="text-[10px] font-semibold text-[#938E7E]">مرة استخدام</p>
+   754→   754→          </div>
+   755→   755→          <div className="rounded-xl bg-[rgba(16,185,129,0.08)] px-3 py-2.5 text-center">
+   756→   756→            <Ly amount={totalDiscount} bold className="text-xl text-[#10B981]" />
+   757→   757→            <p className="text-[10px] font-semibold text-[#938E7E]">وفّرتها المنصة للزبائن</p>
+   758→   758→          </div>
+   759→   759→        </div>
+   760→   760→
+   761→   761→        {!promos ? (
+   762→   762→          <p className="py-8 text-center text-xs text-[#938E7E]">جارٍ تحميل الكوبونات…</p>
+   763→   763→        ) : promos.length === 0 ? (
+   764→   764→          <p className="py-8 text-center text-xs text-[#938E7E]">لا كوبونات بعد — أنشئ أول كوبون 🎟️</p>
+   765→   765→        ) : (
+   766→   766→          <div className="grid gap-3 lg:grid-cols-2">
+   767→   767→            {promos.map((p) => (
+   768→   768→              <PromoTicket
+   769→   769→                key={p.code}
+   770→   770→                promo={p}
+   771→   771→                busy={busyKey === `promo:${p.code}`}
+   772→   772→                onToggle={(next) => void onTogglePromo(p.code, next)}
+   773→   773→              />
+   774→   774→            ))}
+   775→   775→          </div>
+   776→   776→        )}
+   777→   777→      </section>
+   778→   778→
+   779→   779→      {/* ======= أكواد شحن المحفظة ======= */}
+   780→   780→      <section className="rounded-2xl border border-[rgba(212,175,55,0.2)] bg-[#062319] p-4">
+   781→   781→        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+   782→   782→          <div className="flex items-center gap-3">
+   783→   783→            <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-[rgba(16,185,129,0.35)] bg-[#041710] text-xl">
+   784→   784→              🎁
+   785→   785→            </span>
+   786→   786→            <div>
+   787→   787→              <h3 className="text-sm font-extrabold text-[#F8F5EE]">أكواد شحن المحفظة</h3>
+   788→   788→              <p className="text-[10px] text-[#938E7E]">
+   789→   789→                بطاقات هدية مسبقة الدفع — تُشحن نقداً في المقر وتُباع للزبائن
+   790→   790→              </p>
+   791→   791→            </div>
+   792→   792→          </div>
+   793→   793→          <Dialog open={giftOpen} onOpenChange={setGiftOpen}>
+   794→   794→            <DialogTrigger asChild>
+   795→   795→              <Button className="min-h-12 rounded-xl border border-[rgba(16,185,129,0.45)] bg-[rgba(16,185,129,0.12)] px-4 text-xs font-extrabold text-[#10B981] hover:bg-[rgba(16,185,129,0.2)]">
+   796→   796→                <Gift className="h-4 w-4" />
+   797→   797→                توليد أكواد
+   798→   798→              </Button>
+   799→   799→            </DialogTrigger>
+   800→   800→            <DialogContent className="border-[rgba(16,185,129,0.35)] bg-[#062319] sm:max-w-sm">
+   801→   801→              <DialogHeader>
+   802→   802→                <DialogTitle className="text-base font-extrabold text-[#10B981]">🎁 توليد أكواد شحن</DialogTitle>
+   803→   803→                <DialogDescription className="text-[11px] text-[#938E7E]">
+   804→   804→                  كود بفئة واحدة يُستخدم مرة واحدة — يشحن محفظة الزبون فور إدخاله
+   805→   805→                </DialogDescription>
+   806→   806→              </DialogHeader>
+   807→   807→              <div className="space-y-3.5">
+   808→   808→                <div className="grid grid-cols-2 gap-3">
+   809→   809→                  <div className="space-y-1.5">
+   810→   810→                    <Label className="text-[11px] font-bold text-[#938E7E]">قيمة الكود (د.ل)</Label>
+   811→   811→                    <Input
+   812→   812→                      dir="ltr"
+   813→   813→                      type="number"
+   814→   814→                      min={5}
+   815→   815→                      max={500}
+   816→   816→                      step={5}
+   817→   817→                      value={gAmount}
+   818→   818→                      onChange={(e) => setGAmount(e.target.value)}
+   819→   819→                      className="font-money h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center text-sm text-[#F8F5EE]"
+   820→   820→                    />
+   821→   821→                  </div>
+   822→   822→                  <div className="space-y-1.5">
+   823→   823→                    <Label className="text-[11px] font-bold text-[#938E7E]">عدد الأكواد (1-20)</Label>
+   824→   824→                    <Input
+   825→   825→                      dir="ltr"
+   826→   826→                      type="number"
+   827→   827→                      min={1}
+   828→   828→                      max={20}
+   829→   829→                      value={gCount}
+   830→   830→                      onChange={(e) => setGCount(e.target.value)}
+   831→   831→                      className="font-money h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-center text-sm text-[#F8F5EE]"
+   832→   832→                    />
+   833→   833→                  </div>
+   834→   834→                </div>
+   835→   835→                <div className="space-y-1.5">
+   836→   836→                  <Label className="text-[11px] font-bold text-[#938E7E]">ملاحظة (اختياري)</Label>
+   837→   837→                  <Input
+   838→   838→                    value={gNote}
+   839→   839→                    onChange={(e) => setGNote(e.target.value)}
+   840→   840→                    maxLength={120}
+   841→   841→                    placeholder="دفعة رمضان — وكالة الحوامد"
+   842→   842→                    className="h-11 rounded-xl border-[rgba(212,175,55,0.25)] bg-[#041710] text-xs text-[#F8F5EE]"
+   843→   843→                  />
+   844→   844→                </div>
+   845→   845→                <Button
+   846→   846→                  onClick={() => void submitGifts()}
+   847→   847→                  disabled={busyKey === 'gift:create'}
+   848→   848→                  className="h-12 w-full rounded-xl bg-gradient-to-l from-[#059669] to-[#10B981] text-sm font-extrabold text-[#041710]"
+   849→   849→                >
+   850→   850→                  {busyKey === 'gift:create' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gift className="h-4 w-4" />}
+   851→   851→                  توليد الأكواد
+   852→   852→                </Button>
+   853→   853→              </div>
+   854→   854→            </DialogContent>
+   855→   855→          </Dialog>
+   856→   856→        </div>
+   857→   857→
+   858→   858→        <div className="mb-4 grid grid-cols-3 gap-2">
+   859→   859→          <div className="rounded-xl bg-[rgba(16,185,129,0.08)] px-3 py-2.5 text-center">
+   860→   860→            <p className="font-money ltr-nums text-xl font-bold text-[#10B981]">{giftStats.active}</p>
+   861→   861→            <p className="text-[10px] font-semibold text-[#938E7E]">كود جاهز للبيع</p>
+   862→   862→          </div>
+   863→   863→          <div className="rounded-xl bg-[rgba(212,175,55,0.08)] px-3 py-2.5 text-center">
+   864→   864→            <p className="font-money ltr-nums text-xl font-bold text-[#F5D061]">{giftStats.used}</p>
+   865→   865→            <p className="text-[10px] font-semibold text-[#938E7E]">كود مستهلك</p>
+   866→   866→          </div>
+   867→   867→          <div className="rounded-xl bg-[rgba(16,185,129,0.08)] px-3 py-2.5 text-center">
+   868→   868→            <Ly amount={giftStats.redeemed} bold className="text-xl text-[#10B981]" />
+   869→   869→            <p className="text-[10px] font-semibold text-[#938E7E]">أُعيدت للمحافظ</p>
+   870→   870→          </div>
+   871→   871→        </div>
+   872→   872→
+   873→   873→        {!codes ? (
+   874→   874→          <p className="py-8 text-center text-xs text-[#938E7E]">جارٍ تحميل الأكواد…</p>
+   875→   875→        ) : codes.length === 0 ? (
+   876→   876→          <p className="py-8 text-center text-xs text-[#938E7E]">
+   877→   877→            لا أكواد بعد — ولّد أول دفعة بطاقات هدية 🎁
+   878→   878→          </p>
+   879→   879→        ) : (
+   880→   880→          <div className="wasel-scroll max-h-[52vh] space-y-2 overflow-y-auto pe-1">
+   881→   881→            {codes.map((c) => (
+   882→   882→              <TopupCodeRow
+   883→   883→                key={c.id}
+   884→   884→                code={c}
+   885→   885→                busy={busyKey === `gift:${c.code}`}
+   886→   886→                onToggle={(next) => void onToggleCode(c.code, next)}
+   887→   887→              />
+   888→   888→            ))}
+   889→   889→          </div>
+   890→   890→        )}
+   891→   891→      </section>
+   892→   892→    </div>
+   893→   893→  )
+   894→   894→}
+   895→   895→

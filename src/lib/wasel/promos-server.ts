@@ -334,6 +334,8 @@ export interface LostReportCode {
   lostLyd: number
   topReason: string
   lastAt: string | null
+  /// توزيع المحاولات على أيام النافذة (R10 — لربط التحويم بالسباركلاين)
+  daily: { day: string; count: number }[]
 }
 
 export interface LostMonthlyReport {
@@ -373,6 +375,16 @@ export async function getMonthlyLostReport(days = 30): Promise<LostMonthlyReport
        ORDER BY lostLyd DESC
        LIMIT 12`,
     )
+    // 🆕 R10: توزيع كل كود على الأيام — لربط صفوف التفصيل بنقاط السباركلاين عند التحويم
+    const perCodeDaily = await db.$queryRawUnsafe<{
+      code: string
+      day: string
+      count: number
+    }[]>(
+      `SELECT "code" AS code, date("createdAt") AS day, COUNT(*) AS count
+       FROM "PromoReject"
+       GROUP BY "code", date("createdAt")`,
+    )
 
     // نصفّي زمنياً في جافاسكربت (أدق من مقارنة نص ISO بعدد في SQLite)
     const DAY_MS = 86_400_000
@@ -404,6 +416,17 @@ export async function getMonthlyLostReport(days = 30): Promise<LostMonthlyReport
       return Number.isFinite(t) && t >= windowStartMs
     })
 
+    // نجمع توزيع الأيام لكل كود داخل النافذة فقط (R10)
+    const dailyByCode = new Map<string, { day: string; count: number }[]>()
+    for (const r of perCodeDaily ?? []) {
+      const t = new Date(`${String(r.day)}T00:00:00`).getTime()
+      if (!Number.isFinite(t) || t < windowStartMs) continue
+      const code = String(r.code)
+      const arr = dailyByCode.get(code) ?? []
+      arr.push({ day: String(r.day), count: Number(r.count) })
+      dailyByCode.set(code, arr)
+    }
+
     return {
       days: n,
       totals: {
@@ -417,6 +440,7 @@ export async function getMonthlyLostReport(days = 30): Promise<LostMonthlyReport
         lostLyd: Number(c.lostLyd),
         topReason: String(c.topReason),
         lastAt: c.lastAt ? new Date(String(c.lastAt)).toISOString() : null,
+        daily: dailyByCode.get(String(c.code)) ?? [],
       })),
     }
   } catch {

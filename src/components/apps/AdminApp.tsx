@@ -523,6 +523,32 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
       )
     }
 
+    // 🌙 R10: طلب جديد يصل غرفة العمليات — نبض في السجل + إشعار سطح مكتب في الساعات الهادئة
+    const onNewOrderAdmin = (d: {
+      orderNumber?: string
+      storeName?: string
+      customerName?: string
+      district?: string
+      totalLyd?: number
+      paymentMethod?: string
+    }) => {
+      if (!d?.orderNumber) return
+      pushEvent(
+        'status',
+        `🆕 طلب جديد ${d.orderNumber} من «${d.storeName ?? '؟'}» — ${(d.totalLyd ?? 0).toFixed(2)} د.ل`,
+        `${d.district ?? 'نالوت'} • ${d.paymentMethod === 'wallet' ? 'دفع بالمحفظة' : 'نقداً عند التسليم'}`,
+      )
+      const h = new Date().getHours()
+      const quietHours = h >= 22 || h < 7
+      if (quietHours) {
+        notify(
+          `🌙 طلب ليلي — ${d.storeName ?? 'متجر'}`,
+          `الطلب ${d.orderNumber} بمبلغ ${(d.totalLyd ?? 0).toFixed(2)} د.ل في ${d.district ?? 'نالوت'} — تأكد من تغطية الكباتن`,
+          'wasel-quiet-order',
+        )
+      }
+    }
+
     const onPromoReject = (d: {
       code?: string | null
       label?: string | null
@@ -571,6 +597,7 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
     s.on('wallet:topup_redeemed', onTopupRedeemed)
     s.on('store:giftcard_sold', onGiftCardSold)
     s.on('wallet:promo_cashback', onPromoCashback)
+    s.on('store:new_order', onNewOrderAdmin)
 
     return () => {
       s.off('connect', onConnect)
@@ -587,6 +614,7 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
       s.off('wallet:topup_redeemed', onTopupRedeemed)
       s.off('store:giftcard_sold', onGiftCardSold)
       s.off('wallet:promo_cashback', onPromoCashback)
+      s.off('store:new_order', onNewOrderAdmin)
       leaveRooms(['admin:fleet'])
     }
   }, [unlocked, pin, loadAll, pushEvent, notify])

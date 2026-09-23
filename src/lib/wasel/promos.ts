@@ -52,6 +52,16 @@ export const PROMOS: PromoDef[] = [
     maxDiscountLyd: 15,
     minSubtotalLyd: 60,
   },
+  {
+    code: 'NAFUSA8',
+    label: 'كاش باك نفوسة النسبي',
+    description: 'كاش باك 8% من قيمة طلبك حتى سقف 6 د.ل — يُودع محفظتك فور التسليم',
+    emoji: '💰',
+    kind: 'cashback',
+    percent: 8,
+    maxDiscountLyd: 6,
+    minSubtotalLyd: 25,
+  },
 ]
 
 export type PromoResult =
