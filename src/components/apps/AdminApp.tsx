@@ -168,6 +168,8 @@ const REJECT_REASON_LABELS: Record<string, string> = {
   exhausted: 'نفدت الحصة',
   disabled: 'كوبون معطل',
   min_not_met: 'تحت الحد الأدنى',
+  not_started: '⏰ لم يبدأ بعد',
+  expired: '⌛ منتهي الصلاحية',
 }
 
 export default function AdminApp({ onExit }: { onExit: () => void }) {
@@ -243,6 +245,11 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
     at: number
   } | null>(null)
   const promoAlertTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 🌙 R11: تجميع الإشعارات الليلية — إشعار سطح مكتب كل 15 دقيقة فقط + شارة مجمّعة في الواجهة
+  const [nightDigest, setNightDigest] = useState<{ count: number; lastAt: number } | null>(null)
+  const nightDigestRef = useRef<{ lastNotifyAt: number; pending: number }>({ lastNotifyAt: 0, pending: 0 })
+  const nightDigestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -523,7 +530,8 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
       )
     }
 
-    // 🌙 R10: طلب جديد يصل غرفة العمليات — نبض في السجل + إشعار سطح مكتب في الساعات الهادئة
+    // 🌙 R11: طلب جديد يصل غرفة العمليات — نبض في السجل + إشعارات ليلية مجمّعة كل 15 دقيقة
+    const NIGHT_DIGEST_MS = 15 * 60 * 1000
     const onNewOrderAdmin = (d: {
       orderNumber?: string
       storeName?: string
@@ -540,13 +548,30 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
       )
       const h = new Date().getHours()
       const quietHours = h >= 22 || h < 7
-      if (quietHours) {
+      if (!quietHours) return
+      const digest = nightDigestRef.current
+      const now = Date.now()
+      // أول طلب في نافذة الهدوء (أو مضى ≥ 15 دقيقة عن آخر إشعار) → إشعار فوري وبدء دورة جديدة
+      if (now - digest.lastNotifyAt >= NIGHT_DIGEST_MS) {
+        digest.lastNotifyAt = now
+        digest.pending = 0
         notify(
           `🌙 طلب ليلي — ${d.storeName ?? 'متجر'}`,
           `الطلب ${d.orderNumber} بمبلغ ${(d.totalLyd ?? 0).toFixed(2)} د.ل في ${d.district ?? 'نالوت'} — تأكد من تغطية الكباتن`,
           'wasel-quiet-order',
         )
+        setNightDigest(null)
+      } else {
+        // طلبات متتالية خلال نفس الدورة → تُجمع في شارة واحدة (بلا إزعاج)
+        digest.pending += 1
+        setNightDigest({ count: digest.pending, lastAt: now })
       }
+      // إنفجار الشارة تلقائياً بعد 15 دقيقة صمت
+      if (nightDigestTimer.current) clearTimeout(nightDigestTimer.current)
+      nightDigestTimer.current = setTimeout(() => {
+        setNightDigest(null)
+        nightDigestRef.current.pending = 0
+      }, NIGHT_DIGEST_MS)
     }
 
     const onPromoReject = (d: {
@@ -745,6 +770,53 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
           description: 'الكوبون فعّال وظهر للزبائن من جديد — أمسك الفرصة قبل أن تبرح',
         })
         setPromoAlert((prev) => (prev?.code === code ? null : prev))
+        void loadAll(pin)
+      } catch (e) {
+        handleAdminError(e)
+      } finally {
+        setBusy(null)
+      }
+    },
+    [pin, loadAll, handleAdminError, toast],
+  )
+
+  // 🔄 R11: تصفير عدّاد استخدامات كوبون (تصحيح يدوي منفصل عن التجديد)
+  const resetPromoUses = useCallback(
+    async (code: string) => {
+      setBusy(`reset:${code}`)
+      try {
+        await api('/api/admin/promos', {
+          method: 'PATCH',
+          body: JSON.stringify({ pin, code, resetUses: true }),
+        })
+        toast({
+          title: `🔄 صُفّر عدّاد ${code}`,
+          description: 'عاد العدّاد إلى صفر — استخدمه لتصحيح حصص مزروعة أو اختبارات',
+        })
+        void loadAll(pin)
+      } catch (e) {
+        handleAdminError(e)
+      } finally {
+        setBusy(null)
+      }
+    },
+    [pin, loadAll, handleAdminError, toast],
+  )
+
+  // ⏰ R11: حفظ نافذة جدولة زمنية لكوبون (ISO أو null لإلغاء الحد)
+  const schedulePromo = useCallback(
+    async (code: string, startsAt: string | null, endsAt: string | null) => {
+      setBusy(`sched:${code}`)
+      try {
+        await api('/api/admin/promos', {
+          method: 'PATCH',
+          body: JSON.stringify({ pin, code, startsAt, endsAt }),
+        })
+        const desc =
+          startsAt || endsAt
+            ? `${startsAt ? `من ${new Date(startsAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} ` : ''}${endsAt ? `إلى ${new Date(endsAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}`
+            : 'أُلغيت النافذة الزمنية — الكوبون دائم مرة أخرى'
+        toast({ title: `⏰ حُدّثت جدولة ${code}`, description: desc })
         void loadAll(pin)
       } catch (e) {
         handleAdminError(e)
@@ -1015,6 +1087,40 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
                 )}
               </AnimatePresence>
 
+              {/* 🌙 R11: شارة الطلبات الليلية المجمّعة — تظهر أثناء دورة تجميع نشطة */}
+              <AnimatePresence>
+                {nightDigest && (
+                  <motion.div
+                    key={nightDigest.lastAt}
+                    initial={{ opacity: 0, y: -12, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -10, scale: 0.97 }}
+                    transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+                    className="relative mb-4 flex flex-wrap items-center gap-3 overflow-hidden rounded-2xl border border-[rgba(99,102,241,0.35)] bg-gradient-to-l from-[rgba(30,27,75,0.55)] via-[rgba(49,46,129,0.35)] to-[rgba(30,27,75,0.55)] p-3.5 shadow-md"
+                    role="status"
+                  >
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[rgba(99,102,241,0.16)] text-lg shadow-[0_0_0_1px_rgba(99,102,241,0.4)]">
+                      🌙
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[12.5px] font-extrabold text-[#C7D2FE]">
+                        <span className="ltr-nums font-money">{nightDigest.count}</span> طلبات ليلية في دورة التجميع الحالية — الإشعار السطحي القادم خلال 15 دقيقة من آخر تنبيه
+                      </p>
+                      <p className="mt-0.5 text-[10.5px] text-[#938E7E]">
+                        التجميع يمنع إزعاج الليالي المزدحمة — كل طلب يبقى مرئياً في السجل الحي فور وصوله
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setNightDigest(null)}
+                      aria-label="إخفاء شارة التجميع الليلي"
+                      className="flex h-10 w-10 items-center justify-center rounded-xl text-[#938E7E] transition hover:bg-[rgba(99,102,241,0.12)] hover:text-[#C7D2FE]"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               <Tabs value={tab} onValueChange={setTab} className="gap-4">
                 <div className="wasel-scroll -mx-1 overflow-x-auto px-1 pb-1">
                   <TabsList className="h-auto w-full min-w-max justify-start gap-1 border border-[rgba(212,175,55,0.2)] bg-[#062319]/80 p-1.5">
@@ -1086,6 +1192,9 @@ export default function AdminApp({ onExit }: { onExit: () => void }) {
                       onTogglePromo={togglePromo}
                       onGenerateCodes={generateCodes}
                       onToggleCode={toggleGiftCode}
+                      onRenewPromo={(code) => quickRenew(code, 10)}
+                      onResetPromo={resetPromoUses}
+                      onSchedulePromo={schedulePromo}
                     />
                   </motion.div>
                 </TabsContent>

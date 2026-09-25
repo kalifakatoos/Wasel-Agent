@@ -7,7 +7,7 @@
 // ============================================================
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Copy, Download, Loader2, Plus, TicketPercent, Gift, TrendingDown } from 'lucide-react'
+import { Copy, Download, Loader2, Plus, RotateCcw, TicketPercent, Gift, TrendingDown, Zap, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -67,7 +67,70 @@ const REJECT_REASON_LABELS_MK: Record<string, string> = {
   exhausted: 'نفدت الحصة',
   disabled: 'كوبون معطل',
   min_not_met: 'تحت الحد الأدنى',
+  not_started: '⏰ لم يبدأ بعد',
+  expired: '⌛ منتهي الصلاحية',
   unknown: 'أخرى',
+}
+
+// ============================================================
+// ⏰ أدوات الجدولة الزمنية للكوبونات (R11)
+// ============================================================
+
+/// ISO → قيمة حقل datetime-local بتوقيت الجهاز المحلي
+function isoToLocalInput(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/// حالة الكوبون الزمنية الآن — تُغذي شارة البطاقة
+function promoScheduleState(p: PromoAdmin): {
+  state: 'upcoming' | 'running' | 'ended' | 'none'
+  chip: string | null
+  hint: string | null
+} {
+  const now = Date.now()
+  const s = p.startsAt ? new Date(p.startsAt).getTime() : null
+  const e = p.endsAt ? new Date(p.endsAt).getTime() : null
+  if (s != null && Number.isFinite(s) && now < s) {
+    return {
+      state: 'upcoming',
+      chip: `⏳ يبدأ ${relArabicTime(s, 'future')}`,
+      hint: `موعد الانطلاق: ${fmtDateTime(s)}`,
+    }
+  }
+  if (e != null && Number.isFinite(e) && now > e) {
+    return {
+      state: 'ended',
+      chip: `⌛ انتهى ${relArabicTime(e, 'past')}`,
+      hint: `انتهت صلاحيته: ${fmtDateTime(e)}`,
+    }
+  }
+  if (e != null && Number.isFinite(e)) {
+    return {
+      state: 'running',
+      chip: `⏰ ينتهي ${relArabicTime(e, 'future')}`,
+      hint: `آخر لحظة: ${fmtDateTime(e)}`,
+    }
+  }
+  if (s != null && Number.isFinite(s)) {
+    return { state: 'running', chip: `▶️ بدأ ${relArabicTime(s, 'past')}`, hint: `انطلق: ${fmtDateTime(s)}` }
+  }
+  return { state: 'none', chip: null, hint: null }
+}
+
+/// فرق زمني عربي مختصر: «بعد ٣ ساعات» / «منذ يومين»
+function relArabicTime(ms: number, dir: 'future' | 'past'): string {
+  const diff = Math.abs(ms - Date.now())
+  const mins = Math.round(diff / 60_000)
+  if (mins < 1) return dir === 'future' ? 'الآن' : 'الآن'
+  if (mins < 60) return dir === 'future' ? `بعد ${mins} د` : `منذ ${mins} د`
+  const hours = Math.round(mins / 60)
+  if (hours < 24) return dir === 'future' ? `بعد ${hours} س` : `منذ ${hours} س`
+  const days = Math.round(hours / 24)
+  return dir === 'future' ? `بعد ${days} ي` : `منذ ${days} ي`
 }
 
 export interface CreatePromoInput {
@@ -81,6 +144,9 @@ export interface CreatePromoInput {
   maxDiscountLyd?: number
   minSubtotalLyd: number
   maxUses?: number
+  /** ⏰ نافذة الجدولة (R11) — ISO أو null */
+  startsAt?: string | null
+  endsAt?: string | null
 }
 
 function promoValueLabel(p: PromoAdmin): string {
@@ -100,19 +166,32 @@ function PromoTicket({
   promo,
   busy,
   onToggle,
+  onRenew,
+  onReset,
+  onSchedule,
 }: {
   promo: PromoAdmin
   busy: boolean
   onToggle: (next: boolean) => void
+  onRenew: () => void
+  onReset: () => void
+  onSchedule: () => void
 }) {
+  // ⏰ حالة الجدولة الزمنية — تُغذي الشارة والطبقة البصرية
+  const schedule = promoScheduleState(promo)
+  const dimmed = !promo.isActive || schedule.state === 'ended' || schedule.state === 'upcoming'
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       className={`relative overflow-hidden rounded-2xl border border-dashed p-4 transition-all ${
-        promo.isActive
+        !dimmed
           ? 'border-[rgba(212,175,55,0.5)] bg-gradient-to-bl from-[#0A3324] via-[#062319] to-[#041710]'
-          : 'border-[rgba(147,142,126,0.3)] bg-[#041710]/70 opacity-70'
+          : schedule.state === 'ended'
+            ? 'border-[rgba(239,68,68,0.3)] bg-[#041710]/70 opacity-80'
+            : schedule.state === 'upcoming'
+              ? 'border-[rgba(245,158,11,0.4)] bg-gradient-to-bl from-[#0A3324]/60 via-[#062319]/80 to-[#041710]'
+              : 'border-[rgba(147,142,126,0.3)] bg-[#041710]/70 opacity-70'
       }`}
     >
       {/* ثقوب التذكرة */}
@@ -144,17 +223,45 @@ function PromoTicket({
               💸 كاش باك
             </Badge>
           )}
+          {/* 🆕 R11: شارة الحالة الواعية بالجدولة */}
           <Badge
             className={`border-0 px-2 py-0.5 text-[9px] font-bold ${
-              promo.isActive
-                ? 'bg-[rgba(16,185,129,0.15)] text-[#10B981]'
-                : 'bg-[rgba(147,142,126,0.15)] text-[#938E7E]'
+              schedule.state === 'ended'
+                ? 'bg-[rgba(239,68,68,0.15)] text-[#EF4444]'
+                : schedule.state === 'upcoming'
+                  ? 'bg-[rgba(245,158,11,0.15)] text-[#F59E0B]'
+                  : promo.isActive
+                    ? 'bg-[rgba(16,185,129,0.15)] text-[#10B981]'
+                    : 'bg-[rgba(147,142,126,0.15)] text-[#938E7E]'
             }`}
           >
-            {promo.isActive ? 'نشط' : 'مُعطّل'}
+            {schedule.state === 'ended'
+              ? '⌛ منتهي زمنياً'
+              : schedule.state === 'upcoming'
+                ? '⏳ مجدول قريباً'
+                : promo.isActive
+                  ? 'نشط'
+                  : 'مُعطّل'}
           </Badge>
         </div>
       </div>
+
+      {/* 🆕 R11: شريط الجدولة الزمنية */}
+      {schedule.chip && (
+        <div
+          className={`mt-2 flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-[10px] font-bold ${
+            schedule.state === 'ended'
+              ? 'border-[rgba(239,68,68,0.3)] bg-[rgba(239,68,68,0.07)] text-[#EF4444]'
+              : schedule.state === 'upcoming'
+                ? 'border-[rgba(245,158,11,0.3)] bg-[rgba(245,158,11,0.07)] text-[#F59E0B]'
+                : 'border-[rgba(212,175,55,0.25)] bg-[rgba(212,175,55,0.06)] text-[#F5D061]'
+          }`}
+          title={schedule.hint ?? undefined}
+        >
+          <span>{schedule.chip}</span>
+          {schedule.hint && <span className="ltr-nums text-[9px] font-semibold opacity-75">{schedule.hint}</span>}
+        </div>
+      )}
 
       {/* خط perforation أفقي */}
       <div className="my-3 border-t border-dashed border-[rgba(212,175,55,0.25)]" />
@@ -198,6 +305,40 @@ function PromoTicket({
       <p className="font-money ltr-nums mt-2 text-[9px] text-[#938E7E]/60">
         أُنشئ: {fmtDateTime(promo.createdAt)} • الخصم على حساب المنصة (تسويق)
       </p>
+
+      {/* 🆕 R11: صف إجراءات التذكرة — تجديد/تصفير/جدولة */}
+      <div className="mt-3 grid grid-cols-3 gap-1.5">
+        <button
+          type="button"
+          onClick={onRenew}
+          disabled={busy}
+          aria-label={`تجديد حصة الكوبون ${promo.code} بعشر استخدامات`}
+          className="flex min-h-9 items-center justify-center gap-1 rounded-lg border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.08)] px-1.5 text-[10px] font-extrabold text-[#F59E0B] transition-all hover:bg-[rgba(245,158,11,0.16)] hover:shadow-sm disabled:opacity-50"
+        >
+          <Zap className="h-3 w-3" />
+          جدّد +10
+        </button>
+        <button
+          type="button"
+          onClick={onReset}
+          disabled={busy}
+          aria-label={`تصفير عدّاد استخدامات الكوبون ${promo.code}`}
+          className="flex min-h-9 items-center justify-center gap-1 rounded-lg border border-[rgba(239,68,68,0.3)] bg-[rgba(239,68,68,0.06)] px-1.5 text-[10px] font-extrabold text-[#EF4444] transition-all hover:bg-[rgba(239,68,68,0.14)] hover:shadow-sm disabled:opacity-50"
+        >
+          <RotateCcw className="h-3 w-3" />
+          تصفير الحصة
+        </button>
+        <button
+          type="button"
+          onClick={onSchedule}
+          disabled={busy}
+          aria-label={`تعديل الجدولة الزمنية للكوبون ${promo.code}`}
+          className="flex min-h-9 items-center justify-center gap-1 rounded-lg border border-[rgba(212,175,55,0.35)] bg-[rgba(212,175,55,0.08)] px-1.5 text-[10px] font-extrabold text-[#F5D061] transition-all hover:bg-[rgba(212,175,55,0.16)] hover:shadow-sm disabled:opacity-50"
+        >
+          <Clock className="h-3 w-3" />
+          ⏰ جدولة
+        </button>
+      </div>
     </motion.div>
   )
 }
@@ -288,6 +429,9 @@ export default function MarketingTab({
   onTogglePromo,
   onGenerateCodes,
   onToggleCode,
+  onRenewPromo,
+  onResetPromo,
+  onSchedulePromo,
 }: {
   promos: PromoAdmin[] | null
   codes: TopupCodeAdmin[] | null
@@ -298,6 +442,10 @@ export default function MarketingTab({
   onTogglePromo: (code: string, next: boolean) => Promise<void>
   onGenerateCodes: (amount: number, count: number, note: string) => Promise<boolean>
   onToggleCode: (code: string, next: boolean) => Promise<void>
+  /** 🆕 R11: تجديد حصة +10 / تصفير عدّاد / حفظ جدولة زمنية */
+  onRenewPromo: (code: string) => Promise<void>
+  onResetPromo: (code: string) => Promise<void>
+  onSchedulePromo: (code: string, startsAt: string | null, endsAt: string | null) => Promise<void>
 }) {
   const { toast } = useToast()
 
@@ -345,8 +493,17 @@ export default function MarketingTab({
   const [pCap, setPCap] = useState('')
   const [pMin, setPMin] = useState('0')
   const [pMaxUses, setPMaxUses] = useState('')
+  // ⏰ R11: جدولة زمنية اختيارية عند الإنشاء (datetime-local محلي)
+  const [pStarts, setPStarts] = useState('')
+  const [pEnds, setPEnds] = useState('')
 
   const submitPromo = async () => {
+    const startsIso = pStarts.trim() ? new Date(pStarts).toISOString() : null
+    const endsIso = pEnds.trim() ? new Date(pEnds).toISOString() : null
+    if (startsIso && endsIso && new Date(endsIso) <= new Date(startsIso)) {
+      toast({ title: 'جدولة غير صالحة', description: 'نهاية الكوبون يجب أن تكون بعد بدايته', variant: 'destructive' })
+      return
+    }
     const ok = await onCreatePromo({
       code: pCode,
       label: pLabel,
@@ -358,6 +515,8 @@ export default function MarketingTab({
       maxDiscountLyd: pCap.trim() ? Number(pCap) : undefined,
       minSubtotalLyd: Number(pMin || '0'),
       maxUses: pMaxUses.trim() ? Number(pMaxUses) : undefined,
+      startsAt: startsIso,
+      endsAt: endsIso,
     })
     if (ok) {
       setCreateOpen(false)
@@ -367,8 +526,57 @@ export default function MarketingTab({
       setPCap('')
       setPMaxUses('')
       setPMin('0')
+      setPStarts('')
+      setPEnds('')
     }
   }
+
+  // ⏰ R11: حوار تعديل جدولة كوبون قائم
+  const [scheduleTarget, setScheduleTarget] = useState<PromoAdmin | null>(null)
+  const [sStarts, setSStarts] = useState('')
+  const [sEnds, setSEnds] = useState('')
+  const openSchedule = (p: PromoAdmin) => {
+    setScheduleTarget(p)
+    setSStarts(isoToLocalInput(p.startsAt))
+    setSEnds(isoToLocalInput(p.endsAt))
+  }
+  const submitSchedule = async () => {
+    if (!scheduleTarget) return
+    const startsIso = sStarts.trim() ? new Date(sStarts).toISOString() : null
+    const endsIso = sEnds.trim() ? new Date(sEnds).toISOString() : null
+    if (startsIso && endsIso && new Date(endsIso) <= new Date(startsIso)) {
+      toast({ title: 'جدولة غير صالحة', description: 'نهاية الكوبون يجب أن تكون بعد بدايته', variant: 'destructive' })
+      return
+    }
+    await onSchedulePromo(scheduleTarget.code, startsIso, endsIso)
+    setScheduleTarget(null)
+  }
+
+  // 📋 R11: نافذة تفصيل محاولات كود في تقرير الفرص الضائعة
+  const [detailCode, setDetailCode] = useState<string | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailAttempts, setDetailAttempts] = useState<
+    { id: string; phoneMasked: string; reason: string; subtotalLyd: number; wouldDiscountLyd: number; createdAt: string }[]
+  >([])
+  const openCodeDetail = useCallback(
+    async (code: string) => {
+      setDetailCode(code)
+      setDetailLoading(true)
+      setDetailAttempts([])
+      try {
+        const r = await api<{ attempts: typeof detailAttempts }>(
+          `/api/admin/promos/report/detail?code=${encodeURIComponent(code)}&days=${lostDays}`,
+          { headers: { 'x-admin-pin': pin } },
+        )
+        setDetailAttempts(r.attempts ?? [])
+      } catch {
+        /* الفشل يُعرض كقائمة فارغة */
+      } finally {
+        setDetailLoading(false)
+      }
+    },
+    [pin, lostDays],
+  )
 
   // ---------- حالة توليد أكواد شحن ----------
   const [giftOpen, setGiftOpen] = useState(false)
@@ -655,7 +863,7 @@ export default function MarketingTab({
               )}
             </div>
             <p className="mt-1.5 text-[10px] text-[#938E7E]">
-              مرّر المؤشر فوق الرسم لعرض تفاصيل كل يوم — وحوّم صف كود أدناه لتُضيء أيامه على الرسم
+              مرّر المؤشر فوق الرسم لعرض تفاصيل كل يوم — وحوّم صف كود أدناه لتُضيء أيامه على الرسم — وانقر الصف لعرض كل محاولاته
             </p>
 
             {/* تفصيل الأكواد */}
@@ -672,12 +880,21 @@ export default function MarketingTab({
                       transition={{ delay: 0.05 * i, duration: 0.3 }}
                       onMouseEnter={() => setLostRowHover(c.code)}
                       onMouseLeave={() => setLostRowHover(null)}
-                      className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-3 py-2 transition-all duration-200 ${
+                      onClick={() => void openCodeDetail(c.code)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          void openCodeDetail(c.code)
+                        }
+                      }}
+                      aria-label={`عرض كل محاولات الكود ${c.code} — ${c.count} محاولات`}
+                      className={`flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-3 py-2 transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#F5D061] ${
                         rowHovered
                           ? 'border-[rgba(245,208,97,0.65)] bg-[rgba(245,208,97,0.08)] shadow-md shadow-[rgba(212,175,55,0.15)]'
                           : 'border-[rgba(212,175,55,0.14)] bg-[#041710] hover:border-[rgba(212,175,55,0.35)] hover:bg-[rgba(212,175,55,0.04)]'
                       }`}
-                      aria-label={`تفاصيل الكود ${c.code} — ${c.count} محاولات`}
                     >
                       <span dir="ltr" className="font-money text-xs font-extrabold tracking-wider text-[#F5D061]">
                         {c.code}
@@ -715,6 +932,14 @@ export default function MarketingTab({
                       {c.lastAt && (
                         <span className="ltr-nums text-[9px] text-[#938E7E]">آخر محاولة {fmtDateTime(c.lastAt)}</span>
                       )}
+                      {/* 🆕 R11: إشارة قابلية النقر لفتح التفصيل */}
+                      <span
+                        className={`ms-auto shrink-0 text-[9px] font-bold transition-colors ${
+                          rowHovered ? 'text-[#F5D061]' : 'text-[#938E7E]/70'
+                        }`}
+                      >
+                        🔍 انقر للتفصيل
+                      </span>
                     </motion.div>
                   )
                 })}
@@ -892,6 +1117,37 @@ export default function MarketingTab({
                     </p>
                   )}
                 </div>
+                {/* ⏰ R11: جدولة زمنية اختيارية */}
+                <div className="rounded-xl border border-[rgba(245,158,11,0.3)] bg-[rgba(245,158,11,0.05)] p-3">
+                  <p className="mb-2 text-[11px] font-extrabold text-[#F59E0B]">⏰ جدولة زمنية (اختياري)</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] font-bold text-[#938E7E]">يبدأ العمل في</Label>
+                      <Input
+                        dir="ltr"
+                        type="datetime-local"
+                        value={pStarts}
+                        onChange={(e) => setPStarts(e.target.value)}
+                        aria-label="موعد بداية الكوبون"
+                        className="font-money h-10 rounded-xl border-[rgba(245,158,11,0.3)] bg-[#041710] text-center text-[11px] text-[#F8F5EE]"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] font-bold text-[#938E7E]">ينتهي في</Label>
+                      <Input
+                        dir="ltr"
+                        type="datetime-local"
+                        value={pEnds}
+                        onChange={(e) => setPEnds(e.target.value)}
+                        aria-label="موعد نهاية الكوبون"
+                        className="font-money h-10 rounded-xl border-[rgba(245,158,11,0.3)] bg-[#041710] text-center text-[11px] text-[#F8F5EE]"
+                      />
+                    </div>
+                  </div>
+                  <p className="mt-2 text-[9.5px] leading-relaxed text-[#938E7E]">
+                    اتركهما فارغين لكوبون دائم — أو حدّد نافذة حملة (عرض نهاية أسبوع / رمضان) ويُرفض الكوبون تلقائياً خارجها
+                  </p>
+                </div>
                 <Button
                   onClick={() => void submitPromo()}
                   disabled={busyKey === 'promo:create' || !pCode.trim() || !pLabel.trim()}
@@ -931,8 +1187,11 @@ export default function MarketingTab({
               <PromoTicket
                 key={p.code}
                 promo={p}
-                busy={busyKey === `promo:${p.code}`}
+                busy={busyKey === `promo:${p.code}` || busyKey === `renew:${p.code}` || busyKey === `reset:${p.code}` || busyKey === `sched:${p.code}`}
                 onToggle={(next) => void onTogglePromo(p.code, next)}
+                onRenew={() => void onRenewPromo(p.code)}
+                onReset={() => void onResetPromo(p.code)}
+                onSchedule={() => openSchedule(p)}
               />
             ))}
           </div>
@@ -1052,6 +1311,133 @@ export default function MarketingTab({
           </div>
         )}
       </section>
+
+      {/* ======= ⏰ R11: حوار تعديل الجدولة الزمنية ======= */}
+      <Dialog open={scheduleTarget != null} onOpenChange={(o) => !o && setScheduleTarget(null)}>
+        <DialogContent className="border-[rgba(245,158,11,0.4)] bg-[#062319] sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base font-extrabold text-[#F59E0B]">
+              ⏰ جدولة الكوبون {scheduleTarget?.code}
+            </DialogTitle>
+            <DialogDescription className="text-[11px] text-[#938E7E]">
+              خارج النافذة يُرفض الكوبون تلقائياً مع تسجيل المحاولة في الفرص الضائعة — اتركهما فارغين لإلغاء الجدولة
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3.5">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-bold text-[#938E7E]">يبدأ في</Label>
+                <Input
+                  dir="ltr"
+                  type="datetime-local"
+                  value={sStarts}
+                  onChange={(e) => setSStarts(e.target.value)}
+                  aria-label="موعد بداية الكوبون الجديد"
+                  className="font-money h-10 rounded-xl border-[rgba(245,158,11,0.3)] bg-[#041710] text-center text-[11px] text-[#F8F5EE]"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-bold text-[#938E7E]">ينتهي في</Label>
+                <Input
+                  dir="ltr"
+                  type="datetime-local"
+                  value={sEnds}
+                  onChange={(e) => setSEnds(e.target.value)}
+                  aria-label="موعد نهاية الكوبون الجديد"
+                  className="font-money h-10 rounded-xl border-[rgba(245,158,11,0.3)] bg-[#041710] text-center text-[11px] text-[#F8F5EE]"
+                />
+              </div>
+            </div>
+            {scheduleTarget && (scheduleTarget.startsAt || scheduleTarget.endsAt) && (
+              <p className="rounded-lg bg-[rgba(212,175,55,0.07)] px-3 py-2 text-[10px] leading-relaxed text-[#938E7E]">
+                الجدولة الحالية:{' '}
+                {scheduleTarget.startsAt && (
+                  <>
+                    من <span className="ltr-nums font-money text-[#F5D061]">{fmtDateTime(scheduleTarget.startsAt)}</span>{' '}
+                  </>
+                )}
+                {scheduleTarget.endsAt && (
+                  <>
+                    إلى <span className="ltr-nums font-money text-[#F5D061]">{fmtDateTime(scheduleTarget.endsAt)}</span>
+                  </>
+                )}
+              </p>
+            )}
+            <Button
+              onClick={() => void submitSchedule()}
+              disabled={busyKey?.startsWith('sched:') || busyKey?.startsWith('promo:')}
+              className="h-11 w-full rounded-xl bg-gradient-to-l from-[#F59E0B] to-[#FBBF24] text-xs font-extrabold text-[#041710]"
+            >
+              حفظ الجدولة
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ======= 📋 R11: حوار تفصيل محاولات كود ======= */}
+      <Dialog open={detailCode != null} onOpenChange={(o) => !o && setDetailCode(null)}>
+        <DialogContent className="border-[rgba(239,68,68,0.4)] bg-[#062319] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base font-extrabold text-[#F8F5EE]">
+              📋 محاولات الكود <span dir="ltr" className="font-money text-[#F5D061]">{detailCode}</span>
+            </DialogTitle>
+            <DialogDescription className="text-[11px] text-[#938E7E]">
+              كل محاولة رُفضت خلال آخر {lostDays} يوماً — الهواتف مُقنّعة للخصوصية (آخر 60 محاولة)
+            </DialogDescription>
+          </DialogHeader>
+          {detailLoading ? (
+            <div className="space-y-2" aria-label="جارٍ تحميل المحاولات">
+              <span className="shimmer block h-12 w-full rounded-xl" />
+              <span className="shimmer block h-12 w-full rounded-xl" />
+              <span className="shimmer block h-12 w-4/5 rounded-xl" />
+            </div>
+          ) : detailAttempts.length === 0 ? (
+            <div className="flex min-h-20 items-center justify-center rounded-xl border border-dashed border-[rgba(16,185,129,0.3)] p-4 text-center text-xs text-[#10B981]">
+              ✨ لا محاولات مسجلة لهذا الكود في النافذة المحددة
+            </div>
+          ) : (
+            <div className="wasel-scroll max-h-[46vh] space-y-2 overflow-y-auto pe-1">
+              {detailAttempts.map((a, i) => (
+                <motion.div
+                  key={a.id}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: Math.min(0.03 * i, 0.3), duration: 0.25 }}
+                  className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-xl border border-[rgba(212,175,55,0.14)] bg-[#041710] px-3 py-2"
+                >
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
+                      a.reason === 'exhausted'
+                        ? 'border border-[rgba(239,68,68,0.4)] bg-[rgba(239,68,68,0.08)] text-[#EF4444]'
+                        : a.reason === 'disabled'
+                          ? 'border border-[rgba(147,142,126,0.4)] bg-[rgba(147,142,126,0.08)] text-[#938E7E]'
+                          : a.reason === 'not_started'
+                            ? 'border border-[rgba(245,158,11,0.4)] bg-[rgba(245,158,11,0.08)] text-[#F59E0B]'
+                            : a.reason === 'expired'
+                              ? 'border border-[rgba(239,68,68,0.4)] bg-[rgba(239,68,68,0.08)] text-[#EF4444]'
+                              : 'border border-[rgba(245,158,11,0.4)] bg-[rgba(245,158,11,0.08)] text-[#F59E0B]'
+                    }`}
+                  >
+                    {REJECT_REASON_LABELS_MK[a.reason] ?? a.reason}
+                  </span>
+                  {a.phoneMasked ? (
+                    <span dir="ltr" className="font-money text-[11px] font-bold text-[#C9C4B4]">
+                      {a.phoneMasked}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-[#938E7E]">هاتف مجهول</span>
+                  )}
+                  <span className="ms-auto text-[10px] text-[#938E7E]">
+                    سلة <span className="ltr-nums font-money font-bold text-[#F8F5EE]">{a.subtotalLyd.toFixed(2)}</span> • هدر ≈{' '}
+                    <span className="ltr-nums font-money font-bold text-[#EF4444]">{a.wouldDiscountLyd.toFixed(2)}</span> د.ل
+                  </span>
+                  <span className="ltr-nums w-full text-[9px] text-[#938E7E]/80">{fmtDateTime(a.createdAt)}</span>
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

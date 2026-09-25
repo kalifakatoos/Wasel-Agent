@@ -90,6 +90,18 @@ export function CheckoutScreen({
     const r = computePromoDiscount(code, subtotal, promoList)
     if (!r.ok) {
       setPromoError(r.error)
+      // 🔍 R11: الكود غير مدرج في القائمة الحية — فحص لطيف بالخادم يشرح السبب بدقة
+      // (خصوصاً الكوبونات المجدولة: «لم يبدأ بعد» / «انتهت صلاحيته»)
+      // بلا آثار جانبية — الفحص لا يوثّق محاولات ولا يبث تنبيهات
+      void apiGet<{ ok: boolean; error?: string }>(
+        `/api/promos/check?code=${encodeURIComponent(code)}&subtotal=${subtotal}`,
+      )
+        .then((c) => {
+          if (c && !c.ok && c.error) setPromoError(c.error)
+        })
+        .catch(() => {
+          /* رسالة العميل المحلية كافية عند فشل الفحص */
+        })
       return
     }
     setAppliedPromo(r.promo.code)

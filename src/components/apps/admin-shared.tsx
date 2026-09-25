@@ -56,6 +56,9 @@ export interface PromoAdmin extends PromoDef {
   usedCount: number
   totalDiscountLyd: number
   createdAt: string
+  /** ⏰ نافذة الجدولة الزمنية (R11) — null = بلا حد زمني */
+  startsAt: string | null
+  endsAt: string | null
 }
 
 /// كود شحن محفظة (GET /api/admin/topup-codes)

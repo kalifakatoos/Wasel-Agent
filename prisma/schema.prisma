@@ -199,6 +199,8 @@ model PromoCode {
   maxDiscountLyd   Float? // سقف الخصم (اختياري)
   minSubtotalLyd   Float    @default(0)
   maxUses          Int? // حصة استخدام محدودة (اختياري) — تنفد عند استنفادها
+  startsAt         DateTime? // ⏰ بداية النافذة الزمنية للكوبون (اختياري) — يظهر للزبائن فقط بعدها
+  endsAt           DateTime? // ⏰ نهاية النافذة الزمنية للكوبون (اختياري) — ينطفئ تلقائياً بعدها
   isActive         Boolean  @default(true)
   usedCount        Int      @default(0)
   totalDiscountLyd Float    @default(0)

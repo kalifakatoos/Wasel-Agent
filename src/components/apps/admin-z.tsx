@@ -3,10 +3,10 @@
 // ============================================================
 // 🏛️ المحاسبة Z — جرد وسندات وحظر — غرفة عمليات واصل نالوت (Task 7-d)
 // ============================================================
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { motion } from 'framer-motion'
-import { BadgeAlert, Ban, Landmark, Printer, ScrollText, ShieldCheck } from 'lucide-react'
+import { BadgeAlert, Ban, Landmark, Printer, ScrollText, ShieldCheck, TrendingUp } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,6 +37,154 @@ import {
   type AuditRecord,
   type VouchersPayload,
 } from './admin-shared'
+
+// ============================================================
+// 📈 سباركلاين المبيعات الشهرية (R11) — GMV آخر 30 يوماً بتفاعل تحويم حي
+// ============================================================
+function MonthlySalesSparkline({
+  trend,
+}: {
+  trend: { date: string; label: string; gmvLyd: number; orders: number }[]
+}) {
+  const [hover, setHover] = useState<number | null>(null)
+
+  const chart = useMemo(() => {
+    if (trend.length === 0) return null
+    const W = 660
+    const H = 130
+    const PAD_X = 10
+    const PAD_TOP = 14
+    const PAD_BOTTOM = 22
+    const maxGmv = Math.max(...trend.map((d) => d.gmvLyd), 1)
+    const stepX = (W - PAD_X * 2) / Math.max(1, trend.length - 1)
+    const pts = trend.map((d, i) => ({
+      x: PAD_X + i * stepX,
+      y: PAD_TOP + (1 - d.gmvLyd / maxGmv) * (H - PAD_TOP - PAD_BOTTOM),
+      ...d,
+    }))
+    const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+    const areaPath = `${linePath} L${pts[pts.length - 1].x.toFixed(1)},${H - PAD_BOTTOM} L${pts[0].x.toFixed(1)},${H - PAD_BOTTOM} Z`
+    const total = trend.reduce((s, d) => s + d.gmvLyd, 0)
+    const totalOrders = trend.reduce((s, d) => s + d.orders, 0)
+    const best = trend.reduce((b, d) => (d.gmvLyd > b.gmvLyd ? d : b), trend[0])
+    return { W, H, PAD_BOTTOM, pts, linePath, areaPath, total, totalOrders, best, activeDays: trend.filter((d) => d.gmvLyd > 0).length }
+  }, [trend])
+
+  if (!chart) {
+    return <EmptyHint text="لا بيانات مبيعات بعد — أول يوم توصيل سيلون الخط" />
+  }
+
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-[10.5px]">
+        <span className="rounded-full border border-[rgba(212,175,55,0.4)] bg-[rgba(212,175,55,0.08)] px-2.5 py-1 font-bold text-[#F5D061]">
+          إجمالي 30 يوماً ≈ <Ly amount={chart.total} bold />
+        </span>
+        <span className="rounded-full border border-[rgba(16,185,129,0.4)] bg-[rgba(16,185,129,0.08)] px-2.5 py-1 font-bold text-[#10B981]">
+          <span className="ltr-nums font-money">{chart.totalOrders}</span> طلب مسلّم
+        </span>
+        <span className="rounded-full border border-[rgba(212,175,55,0.3)] bg-[rgba(212,175,55,0.05)] px-2.5 py-1 font-bold text-[#C9C4B4]">
+          🏆 أفضل يوم: {chart.best.label} ≈ <Ly amount={chart.best.gmvLyd} bold />
+        </span>
+        <span className="rounded-full border border-[rgba(147,142,126,0.3)] bg-[rgba(147,142,126,0.06)] px-2.5 py-1 font-bold text-[#938E7E]">
+          <span className="ltr-nums font-money">{chart.activeDays}</span> يوم نشط
+        </span>
+      </div>
+
+      <div className="relative">
+        <svg
+          viewBox={`0 0 ${chart.W} ${chart.H}`}
+          className="w-full"
+          role="img"
+          aria-label="اتجاه المبيعات اليومية خلال ثلاثين يوماً"
+        >
+          <defs>
+            <linearGradient id="zSalesFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#10B981" stopOpacity="0.32" />
+              <stop offset="100%" stopColor="#10B981" stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+          {[0.5].map((f) => (
+            <line
+              key={f}
+              x1="10"
+              x2={chart.W - 10}
+              y1={14 + f * (chart.H - 36)}
+              y2={14 + f * (chart.H - 36)}
+              stroke="rgba(212,175,55,0.08)"
+              strokeDasharray="3 5"
+            />
+          ))}
+          <path d={chart.areaPath} fill="url(#zSalesFill)" />
+          <motion.path
+            d={chart.linePath}
+            fill="none"
+            stroke="#10B981"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            initial={{ pathLength: 0 }}
+            animate={{ pathLength: 1 }}
+            transition={{ duration: 1.1, ease: 'easeInOut' }}
+          />
+          {chart.pts.map((p, i) => (
+            <g key={p.date}>
+              {p.gmvLyd > 0 && (
+                <circle
+                  cx={p.x}
+                  cy={p.y}
+                  r={hover === i ? 4.2 : 2.4}
+                  fill={hover === i ? '#F5D061' : '#10B981'}
+                  stroke="#041710"
+                  strokeWidth="1"
+                />
+              )}
+              <rect
+                x={p.x - chart.W / Math.max(1, chart.pts.length - 1) / 2}
+                y={0}
+                width={chart.W / Math.max(1, chart.pts.length - 1)}
+                height={chart.H}
+                fill="transparent"
+                onMouseEnter={() => setHover(i)}
+                onMouseLeave={() => setHover(null)}
+              />
+            </g>
+          ))}
+          {hover != null && (
+            <line
+              x1={chart.pts[hover].x}
+              x2={chart.pts[hover].x}
+              y1="4"
+              y2={chart.H - 20}
+              stroke="rgba(245,208,97,0.55)"
+              strokeDasharray="3 3"
+            />
+          )}
+        </svg>
+        {hover != null && chart.pts[hover] && (
+          <div
+            className="chart-tip"
+            style={{
+              left: `${Math.min(Math.max((chart.pts[hover].x / chart.W) * 100, 12), 88)}%`,
+              top: `${(chart.pts[hover].y / chart.H) * 100}%`,
+            }}
+          >
+            <p className="text-[10px] font-bold text-[#F5D061]">
+              {chart.pts[hover].label} • {new Date(chart.pts[hover].date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+            </p>
+            <p className="ltr-nums font-money text-sm font-extrabold text-[#F8F5EE]">
+              {chart.pts[hover].gmvLyd.toFixed(2)} د.ل
+            </p>
+            <p className="text-[9px] text-[#938E7E]">
+              <span className="ltr-nums font-money">{chart.pts[hover].orders}</span> طلب مسلّم
+            </p>
+          </div>
+        )}
+      </div>
+      <p className="mt-1 text-[10px] text-[#938E7E]">مرّر المؤشر فوق الخط لعرض مبيعات كل يوم — الطلبات المسلّمة فقط</p>
+    </div>
+  )
+}
 
 export default function ZAccountingTab({
   summary,
@@ -122,6 +270,19 @@ export default function ZAccountingTab({
           <ScrollText className="h-4 w-4" />
           {closing ? 'جارٍ إصدار المحضر…' : 'تقفيل اليومية وإصدار محضر Z'}
         </Button>
+      </SectionCard>
+
+      {/* 📈 R11: سباركلاين المبيعات الشهرية */}
+      <SectionCard
+        title="اتجاه المبيعات — آخر 30 يوماً"
+        icon={<TrendingUp className="h-4 w-4" />}
+        extra={
+          <span className="rounded-full border border-[rgba(16,185,129,0.35)] bg-[rgba(16,185,129,0.08)] px-3 py-1 text-[11px] font-bold text-[#10B981]">
+            طلبات مسلّمة فقط
+          </span>
+        }
+      >
+        <MonthlySalesSparkline trend={s?.monthlyTrend ?? []} />
       </SectionCard>
 
       {/* محاضر الجرد السابقة */}

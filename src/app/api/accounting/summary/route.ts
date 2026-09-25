@@ -89,6 +89,26 @@ export async function GET(req: NextRequest) {
       }
     })
 
+    // 📈 R11: اتجاه GMV آخر 30 يوماً — سباركلاين المبيعات الشهرية في تاب Z
+    // (نستخدم نفس قائمة طلبات الأسبوع ونجلب إضافياً الـ 30 يوماً — استعلام واحد خفيف)
+    const monthStart = new Date(todayStart)
+    monthStart.setDate(monthStart.getDate() - 29)
+    const monthOrders = await db.order.findMany({
+      where: { status: 'delivered', createdAt: { gte: monthStart } },
+      select: { totalLyd: true, createdAt: true },
+    })
+    const monthlyTrend = Array.from({ length: 30 }, (_, i) => {
+      const dayStart = new Date(monthStart.getTime() + i * DAY_MS)
+      const dayEnd = new Date(dayStart.getTime() + DAY_MS)
+      const dayOrders = monthOrders.filter((o) => o.createdAt >= dayStart && o.createdAt < dayEnd)
+      return {
+        date: dayStart.toISOString(),
+        label: DAY_LABELS[dayStart.getDay()],
+        gmvLyd: money(dayOrders.reduce((s, o) => s + o.totalLyd, 0)),
+        orders: dayOrders.length,
+      }
+    })
+
     const storeDues = stores.map((s) => {
       const deliveredOrders = s.orders.filter((o) => o.deliveredAt && o.deliveredAt >= todayStart)
       const dues = money(deliveredOrders.reduce((acc, o) => acc + o.subtotalLyd * 0.9, 0))
@@ -130,6 +150,8 @@ export async function GET(req: NextRequest) {
       promoRejects,
       // 📈 اتجاه GMV الأسبوعي
       weeklyTrend,
+      // 📈 اتجاه GMV الشهري (R11)
+      monthlyTrend,
       stores: storeDues,
       drivers: drivers.map((d) => ({ ...d, status: d.status as DriverDTO['status'] })),
       lastAudit: lastAudit

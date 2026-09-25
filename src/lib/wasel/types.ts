@@ -153,6 +153,8 @@ export interface AccountingSummary {
   dispatchAssigned: number
   /// 📈 اتجاه GMV آخر 7 أيام (الأقدم أولاً — اليوم أخيرها) لرسم السباركلاين في الداشبورد
   weeklyTrend: { date: string; label: string; gmvLyd: number; orders: number }[]
+  /// 📈 اتجاه GMV آخر 30 يوماً (R11 — سباركلاين المبيعات الشهرية في تاب Z)
+  monthlyTrend: { date: string; label: string; gmvLyd: number; orders: number }[]
   /// 🎟️ تحليلات الكوبونات اليومية (الخصم تتحمله المنصة)
   promoDiscountLyd: number
   promoOrders: number

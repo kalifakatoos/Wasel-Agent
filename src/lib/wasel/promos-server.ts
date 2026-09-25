@@ -23,7 +23,22 @@ export interface PromoRow {
   usedCount: number
   totalDiscountLyd: number
   createdAt: string
+  /** ⏰ نافذة الجدولة الزمنية (R11) — ISO نصية في SQLite أو null */
+  startsAt?: string | null
+  endsAt?: string | null
 }
+
+/// هل الكوبون داخل نافذته الزمنية الآن؟ (R11 — يُستخدم في SQL كشرط إضافي وأيضاً في التحقق الفرد)
+export function isPromoInWindow(row: Pick<PromoRow, 'startsAt' | 'endsAt'>, nowMs = Date.now()): boolean {
+  const s = row.startsAt ? new Date(String(row.startsAt)).getTime() : null
+  const e = row.endsAt ? new Date(String(row.endsAt)).getTime() : null
+  if (s != null && Number.isFinite(s) && nowMs < s) return false
+  if (e != null && Number.isFinite(e) && nowMs > e) return false
+  return true
+}
+
+/// شرط SQL للنافذة الزمنية — يُدمج في استعلامات الكوبونات النشطة
+const PROMO_WINDOW_SQL = `("startsAt" IS NULL OR "startsAt" = '' OR "startsAt" <= ?) AND ("endsAt" IS NULL OR "endsAt" = '' OR "endsAt" >= ?)`
 
 export function promoRowToDef(p: PromoRow): PromoDef {
   return {
@@ -69,12 +84,15 @@ export async function ensurePromosSeeded(): Promise<void> {
   return promoSeed
 }
 
-/// الكوبونات النشطة فقط (للعرض على الزبائن)
+/// الكوبونات النشطة فقط (للعرض على الزبائن) — داخل نافذتها الزمنية أيضاً (R11)
 export async function getActivePromos(): Promise<PromoDef[]> {
   try {
     await ensurePromosSeeded()
+    const nowIso = new Date().toISOString()
     const rows = await db.$queryRawUnsafe<PromoRow[]>(
-      `SELECT * FROM "PromoCode" WHERE "isActive" = 1 AND ("maxUses" IS NULL OR "usedCount" < "maxUses") ORDER BY "minSubtotalLyd" ASC`,
+      `SELECT * FROM "PromoCode" WHERE "isActive" = 1 AND ("maxUses" IS NULL OR "usedCount" < "maxUses") AND ${PROMO_WINDOW_SQL} ORDER BY "minSubtotalLyd" ASC`,
+      nowIso,
+      nowIso,
     )
     if (!rows || rows.length === 0) return PROMOS
     return rows.map(promoRowToDef)
@@ -92,8 +110,11 @@ export interface PromoPublic extends PromoDef {
 export async function getActivePromosWithMeta(): Promise<PromoPublic[]> {
   try {
     await ensurePromosSeeded()
+    const nowIso = new Date().toISOString()
     const rows = await db.$queryRawUnsafe<PromoRow[]>(
-      `SELECT * FROM "PromoCode" WHERE "isActive" = 1 AND ("maxUses" IS NULL OR "usedCount" < "maxUses") ORDER BY "minSubtotalLyd" ASC`,
+      `SELECT * FROM "PromoCode" WHERE "isActive" = 1 AND ("maxUses" IS NULL OR "usedCount" < "maxUses") AND ${PROMO_WINDOW_SQL} ORDER BY "minSubtotalLyd" ASC`,
+      nowIso,
+      nowIso,
     )
     if (!rows || rows.length === 0) return PROMOS.map((p) => ({ ...p, usedCount: 0, remainingUses: null }))
     return rows.map((r) => ({
@@ -118,7 +139,13 @@ export type PromoServerResult =
   | { ok: true; promo: PromoRow; discount: number; cashback?: number }
   | { ok: false; error: string; reason: PromoRejectReason; row: PromoRow | null }
 
-export type PromoRejectReason = 'exhausted' | 'disabled' | 'min_not_met' | 'unknown'
+export type PromoRejectReason =
+  | 'exhausted'
+  | 'disabled'
+  | 'min_not_met'
+  | 'not_started' // 🆕 R11: الكوبون لم يبدأ بعد
+  | 'expired' // 🆕 R11: انتهت صلاحية الكوبون
+  | 'unknown'
 
 /// التحقق الخادمي النهائي من الكوبون (الجدول هو مصدر الحقيقة)
 export async function computePromoDiscountDb(
@@ -136,6 +163,25 @@ export async function computePromoDiscountDb(
   if (!row) return { ok: false, error: 'كود الخصم غير معروف', reason: 'unknown', row: null }
   if (!row.isActive)
     return { ok: false, error: 'هذا الكوبون مُعطّل حالياً', reason: 'disabled', row }
+  // ⏰ نافذة الجدولة الزمنية (R11): قبل البداية أو بعد النهاية → رفض واضح
+  const startsMs = row.startsAt ? new Date(String(row.startsAt)).getTime() : null
+  const endsMs = row.endsAt ? new Date(String(row.endsAt)).getTime() : null
+  if (startsMs != null && Number.isFinite(startsMs) && Date.now() < startsMs) {
+    return {
+      ok: false,
+      error: `هذا الكوبون يبدأ العمل في ${fmtArabicDateTime(startsMs)} — عاود الدخول بعدها`,
+      reason: 'not_started',
+      row,
+    }
+  }
+  if (endsMs != null && Number.isFinite(endsMs) && Date.now() > endsMs) {
+    return {
+      ok: false,
+      error: `انتهت صلاحية هذا الكوبون في ${fmtArabicDateTime(endsMs)} — تابعنا لكوبونات جديدة قريباً`,
+      reason: 'expired',
+      row,
+    }
+  }
   if (row.maxUses != null && row.usedCount >= Number(row.maxUses)) {
     return {
       ok: false,
@@ -445,6 +491,80 @@ export async function getMonthlyLostReport(days = 30): Promise<LostMonthlyReport
     }
   } catch {
     return { days: n, totals: { count: 0, lostLyd: 0 }, series: [], codes: [] }
+  }
+}
+
+function fmtArabicDateTime(ms: number): string {
+  const d = new Date(ms)
+  const day = DAY_LABELS_R9[d.getDay()]
+  const date = d.toLocaleDateString('ar-LY', { day: 'numeric', month: 'long' })
+  const time = d.toLocaleTimeString('ar-LY', { hour: '2-digit', minute: '2-digit' })
+  return `${day} ${date} الساعة ${time}`
+}
+
+// ============================================================
+// 🔄 تصفير عدّاد استخدام كوبون (R11 — تصحيح يدوي منفصل عن التجديد)
+// ============================================================
+export async function resetPromoUses(code: string): Promise<boolean> {
+  const clean = (code || '').trim().toUpperCase()
+  if (!clean) return false
+  try {
+    const res = await db.$executeRawUnsafe(
+      `UPDATE "PromoCode" SET "usedCount" = 0 WHERE UPPER("code") = UPPER(?)`,
+      clean,
+    )
+    return res > 0
+  } catch {
+    return false
+  }
+}
+
+// ============================================================
+// 📋 تفصيل محاولات كوبون مرفوض (R11 — نافذة التفصيل في غرفة العمليات)
+// ============================================================
+
+export interface PromoRejectAttempt {
+  id: string
+  phoneMasked: string
+  reason: string
+  subtotalLyd: number
+  wouldDiscountLyd: number
+  createdAt: string
+}
+
+/// كل محاولات كوبون معيّن داخل نافذة N يوم — الأحدث أولاً (بحد أقصى 60 محاولة)
+export async function getPromoRejectDetail(code: string, days = 30): Promise<PromoRejectAttempt[]> {
+  const clean = (code || '').trim().toUpperCase()
+  if (!clean) return []
+  try {
+    await ensureRejectsTable()
+    const n = Math.max(7, Math.min(90, Math.floor(days)))
+    const windowStartMs = Date.now() - n * 86_400_000
+    const rows = await db.$queryRawUnsafe<{
+      id: string
+      phoneMasked: string
+      reason: string
+      subtotalLyd: number
+      wouldDiscountLyd: number
+      createdAt: string
+    }[]>(
+      `SELECT "id", "phoneMasked", "reason", "subtotalLyd", "wouldDiscountLyd", "createdAt"
+       FROM "PromoReject"
+       WHERE UPPER("code") = UPPER(?) AND "createdAt" >= ?
+       ORDER BY "createdAt" DESC LIMIT 60`,
+      clean,
+      windowStartMs,
+    )
+    return (rows ?? []).map((r) => ({
+      id: String(r.id),
+      phoneMasked: String(r.phoneMasked || ''),
+      reason: String(r.reason),
+      subtotalLyd: Number(r.subtotalLyd),
+      wouldDiscountLyd: Number(r.wouldDiscountLyd),
+      createdAt: new Date(String(r.createdAt)).toISOString(),
+    }))
+  } catch {
+    return []
   }
 }
 
