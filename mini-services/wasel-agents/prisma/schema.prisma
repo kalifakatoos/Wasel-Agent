@@ -1,0 +1,327 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// منظومة واصل نالوت - Wasel Nalut Delivery Ecosystem
+// Single Source of Truth schema (SQLite / Prisma adaptation)
+// ============================================================
+
+/// المتاجر في نالوت (food / grocery / marketplace)
+model Store {
+  id              String   @id // slug مثل: qasr-nalut
+  name            String
+  vertical        String   @default("food") // 'food' | 'grocery' | 'marketplace'
+  district        String   @default("وسط نالوت")
+  latitude        Float
+  longitude       Float
+  rating          Float    @default(4.8)
+  ratingSum       Float    @default(0) // مجموع نجوم التقييمات الحية
+  ratingCount     Int      @default(0) // عدد التقييمات الحية
+  isOpen          Boolean  @default(true)
+  baseDeliveryFee Float    @default(5.0)
+  emoji           String   @default("🏪")
+  tagline         String   @default("")
+  prepMinutes     Int      @default(20)
+  createdAt       DateTime @default(now())
+
+  products Product[]
+  orders   Order[]
+}
+
+/// المنتجات والأصناف
+model Product {
+  id            String  @id
+  storeId       String
+  title         String
+  description   String  @default("")
+  basePriceLyd  Float
+  emoji         String  @default("🍽️")
+  category      String  @default("عام")
+  isAvailable   Boolean @default(true)
+  stockQuantity Int     @default(100)
+  isFood        Boolean @default(true)
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+}
+
+/// الكباتن والأسطول
+model Driver {
+  id                String  @id
+  fullName          String
+  phone             String
+  vehicleType       String  @default("سيارة")
+  plateNumber       String  @default("")
+  status            String  @default("offline") // 'offline' | 'online' | 'busy'
+  currentLatitude   Float?
+  currentLongitude  Float?
+  rating            Float   @default(4.9)
+  ratingSum         Float   @default(0) // مجموع نجوم تقييمات الزبائن
+  ratingCount       Int     @default(0) // عدد تقييمات الزبائن
+  activeOrdersCount Int     @default(0)
+  /// عهدة الكاش المتراكمة بحوزة الكابتن (د.ل)
+  custodyCash       Float   @default(0)
+  /// إجمالي أرباح أجور التوصيل المستحقة (د.ل)
+  earningsTotal     Float   @default(0)
+  /// إجمالي عدد التوصيلات المكتملة
+  tripsCompleted    Int     @default(0)
+  createdAt         DateTime @default(now())
+
+  orders Order[]
+}
+
+/// الطلبات ودورة الحياة الصارمة
+model Order {
+  id             String    @id
+  orderNumber    String    @unique // WSL-YYMMDD-XXXX
+  customerName   String
+  customerPhone  String
+  storeId        String
+  storeName      String
+  driverId       String?
+  driverName     String?
+  status         String    @default("placed") // placed | accepted | preparing | ready_for_pickup | out_for_delivery | delivered | cancelled | disputed
+  itemsJson      String // JSON: [{productId,title,qty,unitPrice,notes}]
+  subtotalLyd    Float
+  deliveryFeeLyd Float
+  serviceFeeLyd  Float     @default(0) // صفر على الزبون دائماً
+  discountLyd    Float     @default(0)
+  /// كود الخصم المطبق (إن وجد) — WASEL10 / NAALUT5 / JEBEL15
+  promoCode      String?
+  /// كاش باك الكوبون المودع في محفظة الزبون عند التسليم (د.ل) — كوبونات kind='cashback'
+  cashbackLyd    Float     @default(0)
+  totalLyd       Float
+  deliveryAddress String
+  district       String    @default("وسط نالوت")
+  deliveryLat    Float
+  deliveryLng    Float
+  otpCode        String // كود التسليم الرباعي
+  paymentMethod  String    @default("cash") // 'cash' | 'wallet'
+  prepTimeMinutes Int      @default(20)
+  dispatchAt     DateTime?
+  readyAt        DateTime?
+  handoverAt     DateTime?
+  deliveredAt    DateTime?
+  notes          String    @default("")
+  disputeNote    String?
+  /// تقييم الزبون بعد التسليم (نجوم 1-5) — تقييم واحد لكل طلب
+  ratedAt        DateTime?
+  storeStars     Int?
+  driverStars    Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  store              Store                @relation(fields: [storeId], references: [id])
+  driver             Driver?              @relation(fields: [driverId], references: [id])
+  walletTransactions WalletTransaction[]
+}
+
+/// المحافظ المالية (شجرة حسابات مغلقة)
+model Wallet {
+  id            String  @id @default(cuid())
+  ownerId       String  @unique // phone للزبون، storeId للمتجر، driverId للكابتن، 'platform_revenue' / 'platform_escrow'
+  walletType    String // 'customer' | 'store' | 'driver_earnings' | 'platform_revenue' | 'platform_escrow'
+  balance       Float   @default(0)
+  lockedBalance Float   @default(0)
+  updatedAt     DateTime @updatedAt
+}
+
+/// دفتر القيود المزدوجة
+model WalletTransaction {
+  id           String   @id @default(cuid())
+  orderId      String?
+  fromWalletId String?
+  toWalletId   String?
+  amount       Float
+  type         String // order_placement | order_delivered | custody_collect | settlement | store_payout | dispute | platform_commission
+  narration    String
+  createdAt    DateTime @default(now())
+
+  order Order? @relation(fields: [orderId], references: [id])
+}
+
+/// محاضر الجرد اليومي Z
+model DailyAudit {
+  id              String    @id @default(cuid())
+  auditCode       String    @unique // Z-YYMMDD-NN
+  auditDate       DateTime
+  totalOrders     Int       @default(0)
+  gmvLyd          Float     @default(0)
+  cashCollectedLyd Float    @default(0)
+  merchantDuesLyd Float     @default(0)
+  captainDuesLyd  Float     @default(0)
+  platformNetLyd  Float     @default(0)
+  /// تحليلات الفرص الضائعة (محاولات كوبونات مرفوضة) وقت التقفيل
+  promoRejectsCount Int     @default(0)
+  promoRejectsLossLyd Float @default(0)
+  /// إجمالي كاش باك وُدع للمحافظ يوم المحضر
+  cashbackCreditedLyd Float @default(0)
+  isClosed        Boolean   @default(false)
+  closedAt        DateTime?
+  notes           String    @default("")
+}
+
+/// سندات القبض والصرف الرسمية
+model Voucher {
+  id              String   @id @default(cuid())
+  voucherNumber   String   @unique // RV-... / DV-...
+  type            String // 'receipt' (سند قبض عهدة) | 'disbursement' (سند صرف متجر)
+  beneficiaryName String
+  beneficiaryRole String // driver | store
+  amountLyd       Float
+  orderId         String?
+  notes           String   @default("")
+  createdAt       DateTime @default(now())
+}
+
+/// أرقام الهواتف المحظورة (فض النزاعات no-show)
+model BlockedPhone {
+  phone    String   @id
+  reason   String   @default("")
+  blockedAt DateTime @default(now())
+}
+
+/// كوبونات الخصم المُدارة من غرفة العمليات (الخصم تتحمله المنصة 100%)
+model PromoCode {
+  id               String   @id @default(cuid())
+  code             String   @unique // WASEL10 ...
+  label            String
+  description      String   @default("")
+  emoji            String   @default("🎟️")
+  kind             String   @default("percent") // 'percent' | 'flat'
+  percent          Float? // لنسبة الخصم
+  flatLyd          Float? // للخصم الثابت
+  maxDiscountLyd   Float? // سقف الخصم (اختياري)
+  minSubtotalLyd   Float    @default(0)
+  maxUses          Int? // حصة استخدام محدودة (اختياري) — تنفد عند استنفادها
+  startsAt         DateTime? // ⏰ بداية النافذة الزمنية للكوبون (اختياري) — يظهر للزبائن فقط بعدها
+  endsAt           DateTime? // ⏰ نهاية النافذة الزمنية للكوبون (اختياري) — ينطفئ تلقائياً بعدها
+  isActive         Boolean  @default(true)
+  usedCount        Int      @default(0)
+  totalDiscountLyd Float    @default(0)
+  createdAt        DateTime @default(now())
+}
+
+/// محاولات استخدام كوبونات رُفضت (تحليلات الفرص الضائعة — الندرة)
+model PromoReject {
+  id               String   @id @default(cuid())
+  code             String   // الكود الذي حاول الزبون
+  reason           String   // 'exhausted' نفدت الحصة | 'disabled' معطل | 'min_not_met' تحت الحد
+  phoneMasked      String   @default("") // 091****889
+  subtotalLyd      Float    @default(0) // قيمة سلة الزبون وقت المحاولة
+  wouldDiscountLyd Float    @default(0) // الخصم الذي كان سيحصل عليه (قيمة الفرصة)
+  createdAt        DateTime @default(now())
+}
+
+/// أكواد شحن المحفظة (بطاقات هدية مسبقة الدفع — بلا ربا ولا غرر)
+model TopupCode {
+  id          String    @id @default(cuid())
+  code        String    @unique // WASL-GIFT-XXXXXX
+  amountLyd   Float
+  isActive    Boolean   @default(true)
+  usedByPhone String?
+  usedAt      DateTime?
+  note        String    @default("")
+  createdAt   DateTime  @default(now())
+}
+
+// ============================================================
+// طبقة الوكلاء الأذكياء - Multi-Agent AI System Tables
+// ============================================================
+
+/// مهام الوكلاء الذكية (قائمة مهام مركزية لكل وكيل)
+model AgentTask {
+  id           String    @id @default(cuid())
+  /// نوع الوكيل: 'sales' | 'procurement' | 'dispatch' | 'accounting' | 'revenue' | 'customer_intel' | 'ops_monitor'
+  agentType    String
+  /// حالة المهمة: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  status       String    @default("pending")
+  /// الأولوية (1 = أعلى، 10 = أدنى) — جدولة المهام
+  priority     Int       @default(5)
+  /// مدخلات المهمة (JSON payload)
+  inputJson    String
+  /// مخرجات المهمة (JSON result — nullable حتى اكتمال المهمة)
+  outputJson   String?
+  /// رسالة الخطأ (إن فشلت المهمة)
+  error        String?
+  /// مصدر التشغيل: 'system' | 'event' | 'cron' | 'user' | 'agent'
+  triggeredBy  String    @default("system")
+  /// معرف التشغيل المرجعي (لربط المهام المتسلسلة)
+  parentTaskId String?
+  createdAt    DateTime  @default(now())
+  startedAt    DateTime?
+  completedAt  DateTime?
+
+  logs AgentLog[]
+}
+
+/// سجلات الوكلاء التفصيلية (Audit Trail لكل مهمة)
+model AgentLog {
+  id           String   @id @default(cuid())
+  taskId       String
+  /// مستوى السجل: 'debug' | 'info' | 'warn' | 'error'
+  level        String   @default("info")
+  message      String
+  /// بيانات إضافية (JSON metadata — nullable)
+  metadataJson String?
+  createdAt    DateTime @default(now())
+
+  task AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+/// أوامر الشراء الآلية (الناتج الرئيسي لوكيل المشتريات)
+model PurchaseOrder {
+  id                  String   @id @default(cuid())
+  poNumber            String   @unique // PO-YYMMDD-NNN
+  /// الحالة: 'draft' | 'submitted' | 'approved' | 'shipped' | 'received' | 'cancelled'
+  status              String   @default("draft")
+  /// المنصة المصدر: 'alibaba' | 'aliexpress' | 'taobao' | '1688' | 'local'
+  supplierPlatform    String   @default("alibaba")
+  supplierName        String
+  supplierUrl         String   @default("")
+  /// المنتج المرجعي (nullable للمنتجات الجديدة)
+  productId           String?
+  productName         String
+  productEmoji        String   @default("📦")
+  quantity            Int
+  /// الحد الأدنى للطلب (MOQ) من المورّد
+  moq                 Int      @default(1)
+  /// تكلفة الوحدة بالدينار الليبي (بعد تحويل العملة)
+  unitCostLyd         Float
+  /// تكلفة الشحن بالدينار الليبي
+  shippingCostLyd     Float    @default(0)
+  /// التكلفة الإجمالية المتوقعة (شامل الشحن)
+  totalCostLyd        Float
+  /// مدة الوصول المقدّرة بالأيام
+  estimatedArrivalDays Int    @default(30)
+  /// المتجر المستهدف (nullable للمشتريات العامة)
+  storeId             String?
+  /// ملاحظات الوكيل
+  notes               String   @default("")
+  /// معرف مهمة الوكيل التي أنشأت أمر الشراء
+  agentTaskId         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+/// ذاكرة الوكلاء طويلة المدى (Context & Memory Store)
+model AgentMemory {
+  id        String    @id @default(cuid())
+  /// نوع الوكيل صاحب الذاكرة
+  agentType String
+  /// مفتاح الذاكرة (مثل: 'customer_segment:091xxxx' أو 'pricing_surge_pattern')
+  key       String
+  /// القيمة المخزنة (JSON)
+  valueJson String
+  /// تاريخ انتهاء الصلاحية (nullable = دائمة)
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([agentType, key])
+}
