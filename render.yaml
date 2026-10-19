@@ -1,5 +1,20 @@
 services:
   - type: web
+    name: wasel-nalut-app
+    env: node
+    region: frankfurt
+    plan: starter
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3003
+      - key: DATABASE_URL
+        value: "file:./db/custom.db"
+
+  - type: web
     name: wasel-agents
     env: node
     region: frankfurt
@@ -13,4 +28,4 @@ services:
       - key: PORT
         value: 3020
       - key: DATABASE_URL
-        sync: false
+        value: "file:../db/custom.db"
